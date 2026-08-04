@@ -1,0 +1,101 @@
+name: Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish BCS Tool
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Verify release tag matches project version
+        shell: pwsh
+        run: |
+          $versionNode = Select-Xml `
+            -Path ".\BCSTool\BCSTool.csproj" `
+            -XPath "/Project/PropertyGroup/Version"
+
+          if ($null -eq $versionNode) {
+              throw "Could not find <Version> in BCSTool.csproj."
+          }
+
+          $projectVersion = $versionNode.Node.InnerText.Trim()
+          $expectedTag = "v$projectVersion"
+          $actualTag = "${{ github.ref_name }}"
+
+          Write-Host "Project version: $projectVersion"
+          Write-Host "Expected tag:    $expectedTag"
+          Write-Host "Actual tag:      $actualTag"
+
+          if ($actualTag -ne $expectedTag) {
+              throw "Release tag '$actualTag' does not match project version '$projectVersion'. Expected '$expectedTag'."
+          }
+
+      - name: Verify tagged commit is on main
+        shell: pwsh
+        run: |
+          git fetch origin main
+
+          git merge-base --is-ancestor HEAD origin/main
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "The release tag does not point to a commit contained in the main branch."
+          }
+
+      - name: Publish BCS Tool
+        shell: pwsh
+        run: |
+          & ".\BCSTool\Publish-SingleExe.ps1"
+
+      - name: Verify published executable
+        shell: pwsh
+        run: |
+          $exe = ".\BCSTool\publish\BCS Tool.exe"
+
+          if (-not (Test-Path $exe)) {
+              throw "Expected release executable was not produced: $exe"
+          }
+
+          Write-Host "Release executable found:"
+          Get-Item $exe | Format-List Name, Length, LastWriteTime
+
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $exe = ".\BCSTool\publish\BCS Tool.exe"
+          $checksumFile = "$exe.sha256"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          "$hash  BCS Tool.exe" |
+              Set-Content -Path $checksumFile -Encoding ascii
+
+          Write-Host "SHA-256:"
+          Get-Content $checksumFile
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            ".\BCSTool\publish\BCS Tool.exe" `
+            ".\BCSTool\publish\BCS Tool.exe.sha256" `
+            --verify-tag `
+            --generate-notes `
+            --title "BCS Tool ${{ github.ref_name }}"
