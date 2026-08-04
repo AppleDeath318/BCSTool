@@ -88,6 +88,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="190"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -103,8 +104,15 @@
                         <TextBox Grid.Row="0"
                                  Grid.Column="1"
                                  Text="{Binding SaveName, UpdateSourceTrigger=PropertyChanged}"
-                                 Margin="0,0,0,8"
+                                 Margin="0,0,8,8"
                                  ToolTip="Save to host, without the .sav extension."/>
+
+                        <Button Grid.Row="0"
+                                Grid.Column="2"
+                                Content="Open Save Folder"
+                                Click="OpenSaveFolder_Click"
+                                Margin="0,0,0,8"
+                                ToolTip="Open the Bannerlord Coop dedicated server Game Saves folder."/>
 
                         <TextBlock Grid.Row="1"
                                    Grid.Column="0"

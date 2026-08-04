@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -123,6 +125,69 @@ public partial class ServerConfigurationWindow : Window
         RoutedEventArgs e)
     {
         Close();
+    }
+
+
+    /// <summary>
+    /// Opens Bannerlord Coop's dedicated-server save directory:
+    ///
+    /// Documents\Mount and Blade II Bannerlord\CoopData\DedicatedServer\Game Saves
+    ///
+    /// The base directory is derived from ServerConfigPath so it follows the
+    /// same Documents-folder resolution already used by CoopConfigService.
+    /// </summary>
+    private void OpenSaveFolder_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        try
+        {
+            var dedicatedServerDirectory =
+                Path.GetDirectoryName(
+                    _configService.ServerConfigPath);
+
+            if (string.IsNullOrWhiteSpace(dedicatedServerDirectory))
+            {
+                throw new InvalidOperationException(
+                    "Could not determine the DedicatedServer directory.");
+            }
+
+            var saveFolder =
+                Path.Combine(
+                    dedicatedServerDirectory,
+                    "Game Saves");
+
+            if (!Directory.Exists(saveFolder))
+            {
+                MessageBox.Show(
+                    this,
+                    $"The save folder does not exist yet:\n\n{saveFolder}\n\n" +
+                    "Start the server and create or save a game first, then try again.",
+                    "Game Saves",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                return;
+            }
+
+            Process.Start(
+                new ProcessStartInfo
+                {
+                    FileName =
+                        saveFolder,
+                    UseShellExecute =
+                        true
+                });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not open the save folder.\n\n{ex.Message}",
+                "Game Saves",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
 
