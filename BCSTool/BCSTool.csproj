@@ -22,6 +22,6 @@
     <Product>BCS Tool</Product>
     <Description>Bannerlord Coop Server management tool</Description>
     <RootNamespace>BCSTool</RootNamespace>
-    <Version>1.8.11</Version>
+	<Version>0.1.0</Version>
   </PropertyGroup>
 </Project>

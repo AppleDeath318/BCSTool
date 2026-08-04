@@ -485,7 +485,7 @@
                        VerticalAlignment="Center"/>
 
             <TextBlock Grid.Column="1"
-                       Text="BCS Tool v1.8.11"
+                       Text="{Binding ApplicationVersion}"
                        Opacity="0.65"
                        Margin="12,0,0,0"
                        VerticalAlignment="Center"/>

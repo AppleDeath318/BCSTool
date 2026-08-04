@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Threading;
 using System.IO;
@@ -131,6 +132,57 @@ public sealed class MainViewModel : BindableBase, IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// User-facing application name and version.
+    ///
+    /// The version comes from the <Version> value in BCSTool.csproj, so the
+    /// project file remains the single source of truth for release numbering.
+    /// AssemblyInformationalVersion may contain build metadata after a '+'
+    /// character; that metadata is intentionally omitted from the UI.
+    /// </summary>
+    public string ApplicationVersion =>
+        $"BCS Tool v{GetApplicationVersion()}";
+
+
+    private static string GetApplicationVersion()
+    {
+        var assembly =
+            typeof(MainViewModel).Assembly;
+
+        var informationalVersion =
+            assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion;
+
+        if (!string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            var metadataSeparator =
+                informationalVersion.IndexOf('+');
+
+            return
+                metadataSeparator >= 0
+                    ? informationalVersion[..metadataSeparator]
+                    : informationalVersion;
+        }
+
+        // Fallback for unusual builds where informational-version metadata
+        // was not generated.
+        var assemblyVersion =
+            assembly.GetName().Version;
+
+        if (assemblyVersion is null)
+            return "0.0.0";
+
+        var build =
+            Math.Max(
+                0,
+                assemblyVersion.Build);
+
+        return
+            $"{assemblyVersion.Major}.{assemblyVersion.Minor}.{build}";
+    }
+
 
     public string ServerExecutableDisplay
     {
@@ -411,7 +463,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         Settings = await _settingsService.LoadAsync();
 
-        AddToolMessage("BCS Tool v1.8.11 initialized.");
+        AddToolMessage($"{ApplicationVersion} initialized.");
         AddToolMessage($"Settings storage: {_settingsService.StorageLocation}");
 
         await DetectServerExecutableIfNeededAsync();
@@ -1554,8 +1606,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         var statusSegment =
             plain[
-                statusStart..
-                saveIndex];
+                statusStart..saveIndex];
 
         status =
             TrimFooterSeparators(
