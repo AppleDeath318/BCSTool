@@ -23,5 +23,6 @@
     <Description>Bannerlord Coop Server management tool</Description>
     <RootNamespace>BCSTool</RootNamespace>
 	<Version>0.1.0</Version>
+	<PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>
 </Project>

@@ -228,6 +228,14 @@ The `0.x` version number indicates that features, behavior, and configuration ha
 
 If you encounter a reproducible problem, please open a GitHub Issue and include relevant BCS Tool logs and a description of what happened.
 
+## License
+
+BCS Tool is free and open-source software licensed under the **GNU General Public License v3.0 (GPL-3.0-only)**.
+
+You are free to use, study, modify, and redistribute BCS Tool under the terms of the GPLv3. If you distribute a modified version or other derivative work covered by the GPL, you must provide the corresponding source code under the same license terms.
+
+See [`LICENSE`](LICENSE) for the full license text.
+
 ## Disclaimer
 
 BCS Tool is an independent community utility and is not an official TaleWorlds product.
