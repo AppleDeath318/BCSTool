@@ -1458,6 +1458,23 @@ public sealed class MainViewModel : BindableBase, IDisposable
         status =
             status.Trim();
 
+        // Bannerlord can report descriptive native states with a lowercase
+        // first letter, such as "loading campaign". Match BCS Tool's other
+        // state labels by capitalizing only that first character.
+        //
+        // Already-capitalized/all-uppercase states such as "SERVING" are left
+        // unchanged.
+        if (
+            status.Length > 0 &&
+            char.IsLower(
+                status[0]))
+        {
+            status =
+                char.ToUpperInvariant(
+                    status[0]) +
+                status[1..];
+        }
+
         if (
             string.Equals(
                 _nativeServerStatus,
@@ -1606,7 +1623,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         var statusSegment =
             plain[
-                statusStart..saveIndex];
+                statusStart..
+                saveIndex];
 
         status =
             TrimFooterSeparators(

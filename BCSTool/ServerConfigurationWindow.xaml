@@ -104,6 +104,7 @@
                         <TextBox Grid.Row="0"
                                  Grid.Column="1"
                                  Text="{Binding SaveName, UpdateSourceTrigger=PropertyChanged}"
+                                 VerticalContentAlignment="Center"
                                  Margin="0,0,8,8"
                                  ToolTip="Save to host, without the .sav extension."/>
 

@@ -65,7 +65,7 @@
         <!--
             STATUS AREA
             Displays values supplied by MainViewModel:
-            server lifecycle state, PID, uptime, and next restart.
+            server lifecycle state, uptime, and next restart.
         -->
         <Border Grid.Row="0"
                 BorderBrush="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}"
@@ -75,7 +75,6 @@
                 Margin="0,0,0,10">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2*"/>
                     <ColumnDefinition Width="2*"/>
                     <ColumnDefinition Width="2*"/>
                     <ColumnDefinition Width="2*"/>
@@ -160,22 +159,14 @@
                                    VerticalAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
-
-                <StackPanel Grid.Column="1">
-                    <TextBlock Text="PID" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding ServerPidText}"
-                               FontSize="18"
-                               Margin="0,3,0,0"/>
-                </StackPanel>
-
-                <StackPanel Grid.Column="2">
+<StackPanel Grid.Column="1">
                     <TextBlock Text="Uptime" FontWeight="SemiBold"/>
                     <TextBlock Text="{Binding UptimeText}"
                                FontSize="18"
                                Margin="0,3,0,0"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="3">
+                <StackPanel Grid.Column="2">
                     <TextBlock Text="Next restart" FontWeight="SemiBold"/>
                     <TextBlock Text="{Binding NextRestartText}"
                                FontSize="18"
