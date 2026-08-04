@@ -1,0 +1,398 @@
+﻿using System;
+using System.Threading.Tasks;
+using BCSTool.Models;
+using Microsoft.Win32;
+
+namespace BCSTool.Services;
+
+/// <summary>
+/// Loads and saves BCS Tool settings in the current Windows user's Registry.
+///
+/// Registry location:
+///
+///     HKEY_CURRENT_USER\Software\BCSServerTool
+///
+/// Why use HKEY_CURRENT_USER?
+///
+/// - No administrator permission is required.
+/// - Each Windows user gets their own BCS Tool settings.
+/// - Settings survive replacing/updating BCS Tool.exe.
+/// - No visible settings.json file is needed beside the executable.
+///
+/// The rest of the application still talks to this service through
+/// LoadAsync(...) and SaveAsync(...), so changing the storage mechanism does
+/// not require the UI or server-management code to understand Registry APIs.
+/// </summary>
+public sealed class SettingsService
+{
+    /// <summary>
+    /// Registry subkey used by BCS Tool.
+    ///
+    /// This legacy key name is intentionally retained so upgrading from older
+    /// BCS Tool versions preserves all existing saved settings.
+    ///
+    /// This is relative to HKEY_CURRENT_USER.
+    /// </summary>
+    private const string RegistryPath =
+        @"Software\BCSServerTool";
+
+    /// <summary>
+    /// Human-readable location shown in the BCS Tool console.
+    /// </summary>
+    public string StorageLocation =>
+        @"HKEY_CURRENT_USER\Software\BCSServerTool";
+
+
+    /// <summary>
+    /// Loads saved settings from the Registry.
+    ///
+    /// If the Registry key does not exist yet, this is considered a normal
+    /// first launch and the defaults from ServerSettings are returned.
+    ///
+    /// Each Registry value also falls back to its corresponding default if
+    /// that individual value is missing.
+    /// </summary>
+    public Task<ServerSettings> LoadAsync()
+    {
+        var settings = new ServerSettings();
+
+        using var key =
+            Registry.CurrentUser.OpenSubKey(
+                RegistryPath,
+                writable: false);
+
+        // First launch: no Registry key has been created yet.
+        if (key is null)
+        {
+            return Task.FromResult(settings);
+        }
+
+        settings.ServerDirectory =
+            ReadString(
+                key,
+                nameof(ServerSettings.ServerDirectory),
+                settings.ServerDirectory);
+
+        settings.ServerExecutable =
+            ReadString(
+                key,
+                nameof(ServerSettings.ServerExecutable),
+                settings.ServerExecutable);
+
+        settings.RestartEveryHours =
+            ReadInt(
+                key,
+                nameof(ServerSettings.RestartEveryHours),
+                settings.RestartEveryHours);
+
+        settings.RestartMinute =
+            ReadInt(
+                key,
+                nameof(ServerSettings.RestartMinute),
+                settings.RestartMinute);
+
+        // v1.6 supports 0..10 minutes. Clamp Registry values saved by older
+        // versions so upgrading cannot leave the ComboBox without a selection.
+        settings.WarningMinutesBefore =
+            Math.Clamp(
+                ReadInt(
+                    key,
+                    nameof(ServerSettings.WarningMinutesBefore),
+                    settings.WarningMinutesBefore),
+                0,
+                10);
+
+        settings.ReadyText =
+            ReadString(
+                key,
+                nameof(ServerSettings.ReadyText),
+                settings.ReadyText);
+
+        settings.SaveWaitSeconds =
+            ReadInt(
+                key,
+                nameof(ServerSettings.SaveWaitSeconds),
+                settings.SaveWaitSeconds);
+
+        settings.RestartDelaySeconds =
+            ReadInt(
+                key,
+                nameof(ServerSettings.RestartDelaySeconds),
+                settings.RestartDelaySeconds);
+
+        settings.ShutdownTimeoutSeconds =
+            ReadInt(
+                key,
+                nameof(ServerSettings.ShutdownTimeoutSeconds),
+                settings.ShutdownTimeoutSeconds);
+
+        settings.CrashRecoverySettleSeconds =
+            ReadInt(
+                key,
+                nameof(ServerSettings.CrashRecoverySettleSeconds),
+                settings.CrashRecoverySettleSeconds);
+
+        settings.PortReleaseTimeoutSeconds =
+            ReadInt(
+                key,
+                nameof(ServerSettings.PortReleaseTimeoutSeconds),
+                settings.PortReleaseTimeoutSeconds);
+
+        settings.ServerPort =
+            ReadInt(
+                key,
+                nameof(ServerSettings.ServerPort),
+                settings.ServerPort);
+
+        settings.AutoRestartOnCrash =
+            ReadBool(
+                key,
+                nameof(ServerSettings.AutoRestartOnCrash),
+                settings.AutoRestartOnCrash);
+
+        settings.BroadcastSaving =
+            ReadString(
+                key,
+                nameof(ServerSettings.BroadcastSaving),
+                settings.BroadcastSaving);
+
+        settings.BroadcastRestarting =
+            ReadString(
+                key,
+                nameof(ServerSettings.BroadcastRestarting),
+                settings.BroadcastRestarting);
+
+        return Task.FromResult(settings);
+    }
+
+
+    /// <summary>
+    /// Saves all current settings to the Registry.
+    ///
+    /// CreateSubKey creates the Registry key the first time Save Settings is
+    /// pressed. On later saves it opens the existing key for writing.
+    /// </summary>
+    public Task SaveAsync(ServerSettings settings)
+    {
+        using var key =
+            Registry.CurrentUser.CreateSubKey(
+                RegistryPath,
+                writable: true);
+
+        if (key is null)
+        {
+            throw new InvalidOperationException(
+                "Could not create or open the BCS Tool Registry settings key.");
+        }
+
+        // Strings are stored as REG_SZ.
+        WriteString(
+            key,
+            nameof(ServerSettings.ServerDirectory),
+            settings.ServerDirectory);
+
+        WriteString(
+            key,
+            nameof(ServerSettings.ServerExecutable),
+            settings.ServerExecutable);
+
+        WriteString(
+            key,
+            nameof(ServerSettings.ReadyText),
+            settings.ReadyText);
+
+        WriteString(
+            key,
+            nameof(ServerSettings.BroadcastSaving),
+            settings.BroadcastSaving);
+
+        WriteString(
+            key,
+            nameof(ServerSettings.BroadcastRestarting),
+            settings.BroadcastRestarting);
+
+        // Numeric values are stored as REG_DWORD.
+        WriteInt(
+            key,
+            nameof(ServerSettings.RestartEveryHours),
+            settings.RestartEveryHours);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.RestartMinute),
+            settings.RestartMinute);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.WarningMinutesBefore),
+            settings.WarningMinutesBefore);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.SaveWaitSeconds),
+            settings.SaveWaitSeconds);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.RestartDelaySeconds),
+            settings.RestartDelaySeconds);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.ShutdownTimeoutSeconds),
+            settings.ShutdownTimeoutSeconds);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.CrashRecoverySettleSeconds),
+            settings.CrashRecoverySettleSeconds);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.PortReleaseTimeoutSeconds),
+            settings.PortReleaseTimeoutSeconds);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.ServerPort),
+            settings.ServerPort);
+
+        // Booleans are represented as REG_DWORD:
+        // 0 = false
+        // 1 = true
+        WriteBool(
+            key,
+            nameof(ServerSettings.AutoRestartOnCrash),
+            settings.AutoRestartOnCrash);
+
+        return Task.CompletedTask;
+    }
+
+
+    /// <summary>
+    /// Deletes the entire BCS Tool settings key.
+    ///
+    /// The next LoadAsync call will therefore return a fresh ServerSettings
+    /// instance containing the built-in defaults.
+    ///
+    /// DeleteSubKeyTree(..., throwOnMissingSubKey: false) makes this safe even
+    /// if the user has never saved settings before.
+    /// </summary>
+    public Task ResetAsync()
+    {
+        Registry.CurrentUser.DeleteSubKeyTree(
+            RegistryPath,
+            throwOnMissingSubKey: false);
+
+        return Task.CompletedTask;
+    }
+
+
+    // ========================================================
+    // REGISTRY READ HELPERS
+    // ========================================================
+
+    /// <summary>
+    /// Reads a string Registry value, or returns the supplied default.
+    /// </summary>
+    private static string ReadString(
+        RegistryKey key,
+        string name,
+        string defaultValue)
+    {
+        var value = key.GetValue(name);
+
+        return value?.ToString() ?? defaultValue;
+    }
+
+
+    /// <summary>
+    /// Reads an integer Registry value, or returns the supplied default.
+    ///
+    /// REG_DWORD values normally arrive as Int32. Convert.ToInt32 also keeps
+    /// this resilient if Windows returns another numeric representation.
+    /// </summary>
+    private static int ReadInt(
+        RegistryKey key,
+        string name,
+        int defaultValue)
+    {
+        var value = key.GetValue(name);
+
+        if (value is null)
+            return defaultValue;
+
+        try
+        {
+            return Convert.ToInt32(value);
+        }
+        catch
+        {
+            return defaultValue;
+        }
+    }
+
+
+    /// <summary>
+    /// Reads a boolean represented as 0 or 1.
+    /// </summary>
+    private static bool ReadBool(
+        RegistryKey key,
+        string name,
+        bool defaultValue)
+    {
+        var value = key.GetValue(name);
+
+        if (value is null)
+            return defaultValue;
+
+        try
+        {
+            return Convert.ToInt32(value) != 0;
+        }
+        catch
+        {
+            return defaultValue;
+        }
+    }
+
+
+    // ========================================================
+    // REGISTRY WRITE HELPERS
+    // ========================================================
+
+    private static void WriteString(
+        RegistryKey key,
+        string name,
+        string value)
+    {
+        key.SetValue(
+            name,
+            value ?? string.Empty,
+            RegistryValueKind.String);
+    }
+
+
+    private static void WriteInt(
+        RegistryKey key,
+        string name,
+        int value)
+    {
+        key.SetValue(
+            name,
+            value,
+            RegistryValueKind.DWord);
+    }
+
+
+    private static void WriteBool(
+        RegistryKey key,
+        string name,
+        bool value)
+    {
+        key.SetValue(
+            name,
+            value ? 1 : 0,
+            RegistryValueKind.DWord);
+    }
+}

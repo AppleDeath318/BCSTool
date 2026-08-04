@@ -1,0 +1,15 @@
+﻿<!--
+    App.xaml
+    This file defines the WPF Application object.
+
+    In this project we keep it intentionally small because almost all startup
+    logic lives in App.xaml.cs. The Application.Resources section is where
+    global styles, colors, templates, and shared UI resources can be added
+    later if the project grows.
+-->
+<Application x:Class="BCSTool.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+    </Application.Resources>
+</Application>

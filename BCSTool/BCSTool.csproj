@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    BCSServerTool.csproj tells the .NET SDK how to build the application.
+
+    Important settings:
+      OutputType=WinExe       => Windows GUI application
+      TargetFramework        => .NET 10 + Windows APIs
+      UseWPF=true            => enable Windows Presentation Foundation
+      Nullable=enable        => compiler helps catch null-reference bugs
+      ImplicitUsings=enable  => common namespaces are automatically imported
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>BCS Tool</AssemblyName>
+    <Title>BCS Tool</Title>
+    <Product>BCS Tool</Product>
+    <Description>Bannerlord Coop Server management tool</Description>
+    <RootNamespace>BCSTool</RootNamespace>
+    <Version>1.8.11</Version>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,494 @@
+﻿<!--
+    MainWindow.xaml
+    XAML describes the visual tree of the WPF user interface.
+
+    The window intentionally contains almost no application logic. It binds
+    controls to MainViewModel properties and commands.
+
+    Main sections:
+      1. Server status
+      2. Server settings
+      3. Restart settings
+      4. Manual server controls
+      5. Embedded server console
+      6. BCS Tool console
+      7. Manual command input
+      8. Status/footer
+-->
+<Window x:Class="BCSTool.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:BCSTool.Models"
+        xmlns:controls="clr-namespace:BCSTool.Controls"
+        Title="BCS Tool"
+        Width="1180"
+        Height="820"
+        MinWidth="950"
+        MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing">
+
+    <Window.Resources>
+        <!--
+            Buttons use their layout cell's available width rather than
+            hard-coded widths. MinHeight + padding keeps them comfortable at
+            both the minimum window size and larger resolutions.
+        -->
+        <Style TargetType="Button">
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!--
+            STATUS AREA
+            Displays values supplied by MainViewModel:
+            server lifecycle state, PID, uptime, and next restart.
+        -->
+        <Border Grid.Row="0"
+                BorderBrush="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="12"
+                Margin="0,0,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="2*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Server state" FontWeight="SemiBold"/>
+
+                    <StackPanel Orientation="Horizontal"
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center">
+
+                        <!--
+                            Colored lifecycle indicator.
+
+                            Grey   = offline/stopped
+                            Yellow = starting/transitional state
+                            Green  = online/ready
+                            Red    = crashed/error
+                        -->
+                        <Ellipse Width="13"
+                                 Height="13"
+                                 Margin="0,0,8,0"
+                                 VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <!-- Default/offline color -->
+                                    <Setter Property="Fill" Value="Gray"/>
+
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.Ready}">
+                                            <Setter Property="Fill" Value="LimeGreen"/>
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.Starting}">
+                                            <Setter Property="Fill" Value="Gold"/>
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.WaitingForReady}">
+                                            <Setter Property="Fill" Value="Gold"/>
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.Saving}">
+                                            <Setter Property="Fill" Value="Gold"/>
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.Stopping}">
+                                            <Setter Property="Fill" Value="Gold"/>
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.Restarting}">
+                                            <Setter Property="Fill" Value="Gold"/>
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.Crashed}">
+                                            <Setter Property="Fill" Value="Red"/>
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.Error}">
+                                            <Setter Property="Fill" Value="Red"/>
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding ServerState}"
+                                                     Value="{x:Static models:ServerState.PortBlocked}">
+                                            <Setter Property="Fill" Value="Red"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+
+                        <TextBlock Text="{Binding ServerStateText}"
+                                   FontSize="18"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="PID" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding ServerPidText}"
+                               FontSize="18"
+                               Margin="0,3,0,0"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Uptime" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding UptimeText}"
+                               FontSize="18"
+                               Margin="0,3,0,0"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="3">
+                    <TextBlock Text="Next restart" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding NextRestartText}"
+                               FontSize="18"
+                               Margin="0,3,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!--
+            SETTINGS + CONTROLS
+            Three equal parallel columns:
+              1. Server Settings
+              2. Restart Settings
+              3. Server Controls
+        -->
+        <Grid Grid.Row="1"
+              Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Server executable + configuration editors -->
+            <GroupBox Grid.Column="0"
+                      Header="Server Settings"
+                      Margin="0,0,6,0">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0"
+                               Text="Server executable:"
+                               Margin="0,0,0,4"/>
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="4*"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding ServerExecutableDisplay, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 VerticalContentAlignment="Center"
+                                 Margin="0,0,6,0"/>
+
+                        <Button Grid.Column="1"
+                                Content="Browse..."
+                                Command="{Binding BrowseServerCommand}"/>
+                    </Grid>
+
+                    <TextBlock Grid.Row="2"
+                               Text="{Binding ServerExecutableDetectionStatus}"
+                               FontSize="11"
+                               Foreground="Gray"
+                               TextWrapping="Wrap"
+                               Margin="0,5,0,0"/>
+
+                    <Grid Grid.Row="3"
+                          Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button Grid.Column="0"
+                                Content="Server Configuration"
+                                Click="ServerConfiguration_Click"
+                                Margin="0,0,4,0"/>
+
+                        <Button Grid.Column="1"
+                                Content="Mod Configuration"
+                                Click="ModConfiguration_Click"
+                                Margin="4,0,0,0"/>
+                    </Grid>
+                </Grid>
+            </GroupBox>
+
+            <!-- Restart scheduling -->
+            <GroupBox Grid.Column="1"
+                      Header="Restart Settings"
+                      Margin="6,0,6,0">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0"
+                          Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="95"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="Restart every (hours):"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0"/>
+
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding RestartHourOptions}"
+                                  SelectedItem="{Binding Settings.RestartEveryHours}"
+                                  VerticalContentAlignment="Center"/>
+                    </Grid>
+
+                    <Grid Grid.Row="1"
+                          Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="95"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="Restart at minute:"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0"/>
+
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding MinuteOptions}"
+                                  SelectedItem="{Binding Settings.RestartMinute}"
+                                  VerticalContentAlignment="Center"/>
+                    </Grid>
+
+                    <Grid Grid.Row="2"
+                          Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="95"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="Countdown warning (minutes):"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0"/>
+
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding WarningMinuteOptions}"
+                                  SelectedItem="{Binding Settings.WarningMinutesBefore}"
+                                  VerticalContentAlignment="Center"/>
+                    </Grid>
+
+                    <CheckBox Grid.Row="3"
+                              Content="Auto-restart after crash"
+                              IsChecked="{Binding Settings.AutoRestartOnCrash}"
+                              VerticalAlignment="Center"
+                              Margin="0,0,0,10"/>
+
+                    <Grid Grid.Row="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button Grid.Column="0"
+                                Content="Save Settings"
+                                Command="{Binding SaveSettingsCommand}"
+                                Margin="0,0,4,0"/>
+
+                        <Button Grid.Column="1"
+                                Content="Reset to Defaults"
+                                Command="{Binding ResetSettingsCommand}"
+                                Margin="4,0,0,0"/>
+                    </Grid>
+                </Grid>
+            </GroupBox>
+
+            <!-- Manual server controls -->
+            <GroupBox Grid.Column="2"
+                      Header="Server Controls"
+                      Margin="6,0,0,0">
+                <UniformGrid Rows="2"
+                             Columns="3"
+                             Margin="10">
+                    <Button Content="Start"
+                            Command="{Binding StartCommand}"
+                            Margin="4"/>
+
+                    <Button Content="Save"
+                            Command="{Binding SaveCommand}"
+                            Margin="4"/>
+
+                    <Button Content="Restart"
+                            Command="{Binding RestartCommand}"
+                            Margin="4"/>
+
+                    <Button Content="Stop"
+                            Command="{Binding StopCommand}"
+                            Margin="4"/>
+
+                    <Button Content="Clear BCS Tool Console"
+                            Command="{Binding ClearConsoleCommand}"
+                            Margin="4"/>
+
+                    <Button Content="Open Server Logs"
+                            Command="{Binding OpenServerLogsCommand}"
+                            Margin="4"/>
+                </UniformGrid>
+            </GroupBox>
+        </Grid>
+
+
+        <!--
+            CONSOLE AREA
+
+            The two consoles intentionally have separate responsibilities:
+
+            Server Console
+                Bannerlord's live ANSI/VT ConPTY terminal.
+
+            BCS Tool Console
+                BCS Tool scheduling, restart, save, recovery, and diagnostic
+                information produced by AddToolMessage(...).
+
+            Command input remains below BOTH consoles.
+        -->
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <!--
+                    Favor the native server terminal while giving the
+                    BCS Tool console a larger working area. The two panes use
+                    a 3:1 proportional split.
+                -->
+                <RowDefinition Height="3*" MinHeight="240"/>
+                <RowDefinition Height="1*" MinHeight="100"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Native Bannerlord terminal -->
+            <GroupBox Grid.Row="0"
+                      Header="Server Console"
+                      Margin="0,0,0,8">
+                <Grid Margin="8">
+                    <controls:TerminalDisplayControl
+                             x:Name="TerminalDisplay"
+                             Snapshot="{Binding TerminalSnapshot}"
+                             FontFamily="Consolas"
+                             FontSize="13"
+                             Foreground="#CCCCCC"
+                             Background="#0C0C0C"
+                             Padding="0"
+                             BorderThickness="0"/>
+                </Grid>
+            </GroupBox>
+
+            <!-- BCS Tool's own scheduler/lifecycle log -->
+            <GroupBox Grid.Row="1"
+                      Header="BCS Tool Console"
+                      Margin="0,0,0,8">
+                <Grid Margin="8">
+                    <ListBox x:Name="BcsToolConsoleList"
+                             ItemsSource="{Binding ConsoleLines}"
+                             FontFamily="Consolas"
+                             FontSize="12"
+                             Background="#111111"
+                             Foreground="#D6D6D6"
+                             BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"/>
+                </Grid>
+            </GroupBox>
+
+            <!-- Command input sends directly to the Bannerlord ConPTY session -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="6*"/>
+                    <ColumnDefinition Width="1*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBox x:Name="CommandInput"
+                         Grid.Column="0"
+                         Text="{Binding CommandText, Mode=OneWay}"
+                         PreviewKeyDown="CommandInput_PreviewKeyDown"
+                         PreviewTextInput="CommandInput_PreviewTextInput"
+                         FontFamily="Consolas"
+                         MinHeight="30"
+                         VerticalContentAlignment="Center"
+                         SpellCheck.IsEnabled="False"
+                         Margin="0,0,8,0"/>
+
+                <Button Grid.Column="1"
+                        Content="Send"
+                        Command="{Binding SendCommandCommand}"/>
+            </Grid>
+        </Grid>
+
+        <!-- FOOTER: human-readable application status / version -->
+        <Grid Grid.Row="3" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       Text="{Binding StatusMessage}"
+                       TextWrapping="Wrap"
+                       VerticalAlignment="Center"/>
+
+            <TextBlock Grid.Column="1"
+                       Text="BCS Tool v1.8.11"
+                       Opacity="0.65"
+                       Margin="12,0,0,0"
+                       VerticalAlignment="Center"/>
+        </Grid>
+    </Grid>
+</Window>
