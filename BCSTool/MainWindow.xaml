@@ -330,12 +330,12 @@
                         </Grid.ColumnDefinitions>
 
                         <Button Grid.Column="0"
-                                Content="Save Settings"
+                                Content="Save Restart Settings"
                                 Command="{Binding SaveSettingsCommand}"
                                 Margin="0,0,4,0"/>
 
                         <Button Grid.Column="1"
-                                Content="Reset to Defaults"
+                                Content="Reset Restart Defaults"
                                 Command="{Binding ResetSettingsCommand}"
                                 Margin="4,0,0,0"/>
                     </Grid>

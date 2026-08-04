@@ -8,24 +8,15 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 
 ## Features
 
-* Start and stop the Bannerlord Coop dedicated server
-* Save the current campaign from the application
-* Manually restart the server
-* Schedule recurring automatic restarts
-* Configure restart warning time
-* Broadcast restart/save messages to connected players
-* Automatically recover from server crashes
-* Display the native Bannerlord Coop server terminal
-* Send commands directly to the server console
-* Preserve native terminal colors and command autocomplete behavior
-* Display the server's native runtime state
-* Show PID, uptime, and next scheduled restart
-* Automatically detect the dedicated server executable
-* Detect Bannerlord Coop dedicated-server installs from Steam Workshop libraries
-* Edit `server-config.json`
-* Edit `mod-config.json`
-* Open the Bannerlord Coop server log directory directly from the application
-* Store BCS Tool settings in the Windows Registry
+* Manual server restart
+* Last second save before restart to avoid rollback
+* Automatic scheduled restart
+* Restart warning message broadcast
+* Automatic crash recovery
+* Built-in interactable BCS terminal
+* Automatic server executable detection
+* Server configuration modification
+* Mod configuration modification
 
 ## Requirements
 
@@ -54,25 +45,6 @@ The files automatically provided by GitHub as `Source code (zip)` and `Source co
 2. BCS Tool will try to locate `BannerlordCoopServer.exe` automatically.
 3. If the executable is not detected, use **Browse** to select it manually.
 4. Press **Start** to launch the server.
-5. Use the Server Console to monitor the native server terminal or send commands.
-6. Configure automatic restarts under **Restart Settings** if desired.
-
-BCS Tool does **not** automatically launch the server when the application itself starts.
-
-## Server Detection
-
-BCS Tool first uses a previously saved executable path if that path is still valid.
-
-If no valid path is saved, it searches common locations, including:
-
-* A currently running `BannerlordCoopServer` process
-* The BCS Tool application directory
-* Bannerlord Coop data locations
-* Steam library folders
-* Steam Workshop content for Mount \& Blade II: Bannerlord
-* Standard Bannerlord installation locations
-
-You can always override automatic detection with **Browse**.
 
 ## Configuration Editors
 
@@ -90,7 +62,7 @@ Documents\\Mount and Blade II Bannerlord\\CoopData\\DedicatedServer\\server-conf
 Documents\\Mount and Blade II Bannerlord\\CoopData\\mod-config.json
 ```
 
-If either configuration file does not exist yet, BCS Tool can prompt you to start the server once so Bannerlord Coop can generate it.
+If either configuration file does not exist yet, start the server once so Bannerlord Coop can generate it.
 
 BCS Tool preserves the existing JSONC structure and comments when saving supported settings, and creates a `.bak` backup before overwriting a configuration file.
 
@@ -123,18 +95,6 @@ Supported behavior includes:
 * Delete / Backspace
 * Escape
 * Clipboard paste with Ctrl+V
-
-The displayed footer is filtered for readability while the original terminal data remains available internally for command synchronization and native server-state detection.
-
-## Settings Storage
-
-BCS Tool stores application settings for the current Windows user at:
-
-```text
-HKEY\_CURRENT\_USER\\Software\\BCSServerTool
-```
-
-The legacy registry path name is intentionally retained for compatibility with earlier development builds.
 
 Diagnostic logs are stored under:
 

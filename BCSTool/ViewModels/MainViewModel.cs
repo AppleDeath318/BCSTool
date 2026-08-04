@@ -431,11 +431,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
 
-        // Reset Settings deletes HKCU\Software\BCSServerTool and replaces
-        // the in-memory settings with a fresh default ServerSettings object.
+        // Reset Settings now resets only the controls owned by the Restart
+        // Settings panel. The auto-saved server executable path is preserved.
         ResetSettingsCommand = new AsyncRelayCommand(ResetSettingsAsync);
 
-        BrowseServerCommand = new RelayCommand(BrowseServerExecutable);
+        BrowseServerCommand = new AsyncRelayCommand(BrowseServerExecutableAsync);
 
         // Clears BCS Tool's own informational console only.
         //
@@ -981,7 +981,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
             ConfiguredServerExecutableExists())
         {
             ServerExecutableDetectionStatus =
-                "Using saved server executable.";
+                "Saved executable path loaded — changes are saved automatically.";
 
             AddToolMessage(
                 "Server executable path is valid; auto-detection was not needed.");
@@ -1010,7 +1010,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         catch (Exception ex)
         {
             ServerExecutableDetectionStatus =
-                "Auto-detection failed — use Browse...";
+                "Auto-detection failed — use Browse...; selections save automatically.";
 
             AddToolMessage(
                 $"Server executable auto-detection failed: {ex.Message}");
@@ -1024,7 +1024,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 result.Path))
         {
             ServerExecutableDetectionStatus =
-                "Not detected automatically — use Browse...";
+                "Not detected automatically — use Browse...; selections save automatically.";
 
             AddToolMessage(
                 "BannerlordCoopServer.exe was not detected automatically. Use Browse...");
@@ -1044,9 +1044,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
         OnPropertyChanged(
             nameof(ServerExecutableDisplay));
 
-        ServerExecutableDetectionStatus =
-            $"Auto-detected from {result.Source}.";
-
         if (result.CandidateCount > 1)
         {
             AddToolMessage(
@@ -1058,44 +1055,86 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 $"Auto-detected server executable: {result.Path}");
         }
 
-        // Persist the detected path automatically. Other loaded settings are
-        // saved unchanged.
-        await _settingsService.SaveAsync(
-            Settings);
+        // Persist only the detected executable location. Restart settings are
+        // owned by the Restart Settings panel and are not written here.
+        try
+        {
+            await _settingsService.SaveServerExecutableAsync(
+                Settings);
+
+            ServerExecutableDetectionStatus =
+                $"Auto-detected from {result.Source} and saved automatically.";
+
+            AddToolMessage(
+                "Auto-detected server executable path saved automatically.");
+        }
+        catch (Exception ex)
+        {
+            ServerExecutableDetectionStatus =
+                $"Auto-detected from {result.Source}, but the path could not be saved.";
+
+            AddToolMessage(
+                $"Could not persist auto-detected server executable path: {ex.Message}");
+        }
     }
 
 
     /// <summary>
-    /// Validates the current settings, persists them to the Registry, and
+    /// Validates and saves only the controls shown in Restart Settings, then
     /// immediately recalculates the next restart time.
+    ///
+    /// The server executable path is independent and is saved automatically
+    /// when detected or selected through Browse.
     /// </summary>
     private async Task SaveSettingsAsync()
     {
-        var validation = Settings.Validate();
+        var validation =
+            new List<string>();
+
+        if (Settings.RestartEveryHours is < 1 or > 24)
+        {
+            validation.Add(
+                "Restart interval must be between 1 and 24 hours.");
+        }
+
+        if (Settings.RestartMinute is < 0 or > 59)
+        {
+            validation.Add(
+                "Restart minute must be between 0 and 59.");
+        }
+
+        if (Settings.WarningMinutesBefore is < 0 or > 10)
+        {
+            validation.Add(
+                "Restart warning lead time must be between 0 and 10 minutes.");
+        }
 
         if (validation.Count > 0)
         {
-            StatusMessage = string.Join(" ", validation);
+            StatusMessage =
+                string.Join(
+                    " ",
+                    validation);
+
             MessageBox.Show(
                 StatusMessage,
-                "Invalid Settings",
+                "Invalid Restart Settings",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
+
             return;
         }
 
-        await _settingsService.SaveAsync(Settings);
+        await _settingsService.SaveRestartSettingsAsync(
+            Settings);
+
         RecalculateNextRestart();
 
-        OnPropertyChanged(nameof(ServerExecutableDisplay));
+        StatusMessage =
+            "Restart settings saved.";
 
-        ServerExecutableDetectionStatus =
-            ConfiguredServerExecutableExists()
-                ? "Using saved server executable."
-                : "Saved path is not valid — use Browse...";
-
-        StatusMessage = "Settings saved.";
-        AddToolMessage("Settings saved.");
+        AddToolMessage(
+            "Restart settings saved.");
     }
 
     /// <summary>
@@ -1103,44 +1142,58 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// BannerlordCoopServer.exe without editing JSON manually.
     /// </summary>
     /// <summary>
-    /// Deletes all persisted BCS Tool Registry settings and restores the
-    /// built-in defaults in the current UI.
+    /// Restores only the Restart Settings panel to its built-in defaults and
+    /// persists those restart defaults immediately.
     ///
-    /// The server is not automatically restarted by this operation. The new
-    /// settings simply become the active configuration for future actions.
+    /// The independently-saved server executable path is left untouched.
     /// </summary>
     private async Task ResetSettingsAsync()
     {
-        var result = MessageBox.Show(
-            "Reset all BCS Tool settings to their built-in defaults?\n\n" +
-            "This will delete:\n" +
-            "HKEY_CURRENT_USER\\Software\\BCSServerTool",
-            "Reset BCS Tool Settings",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
+        var result =
+            MessageBox.Show(
+                "Reset restart settings to their built-in defaults?" +
+                "The saved server executable path will not be changed.",
+                "Reset Restart Settings",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
 
         if (result != MessageBoxResult.Yes)
             return;
 
-        await _settingsService.ResetAsync();
+        var defaults =
+            new ServerSettings();
 
-        // Replace the whole settings object so WPF refreshes all nested
-        // Settings.* bindings with the default values.
-        Settings = new ServerSettings();
+        Settings.RestartEveryHours =
+            defaults.RestartEveryHours;
 
-        OnPropertyChanged(nameof(ServerExecutableDisplay));
+        Settings.RestartMinute =
+            defaults.RestartMinute;
 
-        ServerExecutableDetectionStatus =
-            "Path reset — auto-detection will run next launch.";
+        Settings.WarningMinutesBefore =
+            defaults.WarningMinutesBefore;
+
+        Settings.AutoRestartOnCrash =
+            defaults.AutoRestartOnCrash;
+
+        // Settings is a nested mutable object, so explicitly refresh the
+        // Restart Settings bindings after restoring its values.
+        OnPropertyChanged(
+            nameof(Settings));
+
+        await _settingsService.SaveRestartSettingsAsync(
+            Settings);
 
         RecalculateNextRestart();
 
-        StatusMessage = "Settings reset to defaults.";
-        AddToolMessage("Registry settings deleted. Defaults restored.");
+        StatusMessage =
+            "Restart settings reset to defaults.";
+
+        AddToolMessage(
+            "Restart settings reset to defaults.");
     }
 
 
-    private void BrowseServerExecutable()
+    private async Task BrowseServerExecutableAsync()
     {
         var dialog = new OpenFileDialog
         {
@@ -1158,12 +1211,34 @@ public sealed class MainViewModel : BindableBase, IDisposable
         Settings.ServerExecutable =
             Path.GetFileName(dialog.FileName);
 
-        OnPropertyChanged(nameof(ServerExecutableDisplay));
+        OnPropertyChanged(
+            nameof(ServerExecutableDisplay));
 
-        ServerExecutableDetectionStatus =
-            "Selected manually — click Save Settings.";
+        try
+        {
+            await _settingsService.SaveServerExecutableAsync(
+                Settings);
 
-        StatusMessage = "Server executable selected. Click Save Settings.";
+            ServerExecutableDetectionStatus =
+                "Selected manually and saved automatically.";
+
+            StatusMessage =
+                "Server executable selected and saved.";
+
+            AddToolMessage(
+                $"Server executable selected and saved automatically: {ServerExecutableDisplay}");
+        }
+        catch (Exception ex)
+        {
+            ServerExecutableDetectionStatus =
+                "Selected manually, but the path could not be saved.";
+
+            StatusMessage =
+                $"Could not save server executable path: {ex.Message}";
+
+            AddToolMessage(
+                StatusMessage);
+        }
     }
 
     private void OpenServerLogs()

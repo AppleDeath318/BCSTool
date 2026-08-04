@@ -167,10 +167,89 @@ public sealed class SettingsService
 
 
     /// <summary>
+    /// Saves only the server executable location.
+    ///
+    /// This is intentionally separate from restart settings so choosing or
+    /// auto-detecting BannerlordCoopServer.exe persists immediately without
+    /// depending on the Restart Settings UI.
+    /// </summary>
+    public Task SaveServerExecutableAsync(
+        ServerSettings settings)
+    {
+        using var key =
+            Registry.CurrentUser.CreateSubKey(
+                RegistryPath,
+                writable: true);
+
+        if (key is null)
+        {
+            throw new InvalidOperationException(
+                "Could not create or open the BCS Tool Registry settings key.");
+        }
+
+        WriteString(
+            key,
+            nameof(ServerSettings.ServerDirectory),
+            settings.ServerDirectory);
+
+        WriteString(
+            key,
+            nameof(ServerSettings.ServerExecutable),
+            settings.ServerExecutable);
+
+        return Task.CompletedTask;
+    }
+
+
+    /// <summary>
+    /// Saves only the settings controlled by the Restart Settings panel.
+    ///
+    /// Server executable selection is deliberately not written here.
+    /// </summary>
+    public Task SaveRestartSettingsAsync(
+        ServerSettings settings)
+    {
+        using var key =
+            Registry.CurrentUser.CreateSubKey(
+                RegistryPath,
+                writable: true);
+
+        if (key is null)
+        {
+            throw new InvalidOperationException(
+                "Could not create or open the BCS Tool Registry settings key.");
+        }
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.RestartEveryHours),
+            settings.RestartEveryHours);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.RestartMinute),
+            settings.RestartMinute);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.WarningMinutesBefore),
+            settings.WarningMinutesBefore);
+
+        WriteBool(
+            key,
+            nameof(ServerSettings.AutoRestartOnCrash),
+            settings.AutoRestartOnCrash);
+
+        return Task.CompletedTask;
+    }
+
+
+    /// <summary>
     /// Saves all current settings to the Registry.
     ///
-    /// CreateSubKey creates the Registry key the first time Save Settings is
-    /// pressed. On later saves it opens the existing key for writing.
+    /// Retained for compatibility with older code paths. The current UI uses
+    /// SaveServerExecutableAsync(...) and SaveRestartSettingsAsync(...) so the
+    /// executable path and restart controls have independent persistence.
     /// </summary>
     public Task SaveAsync(ServerSettings settings)
     {
