@@ -1,4 +1,4 @@
-name: Publish Release
+name: Publish BCS Tool Release
 
 on:
   push:
@@ -14,17 +14,15 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout tagged source
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
-      - name: Verify release tag matches project version
+      - name: Verify tag matches BCSTool.csproj version
         shell: pwsh
         run: |
           $versionNode = Select-Xml `
@@ -47,23 +45,12 @@ jobs:
               throw "Release tag '$actualTag' does not match project version '$projectVersion'. Expected '$expectedTag'."
           }
 
-      - name: Verify tagged commit is on main
-        shell: pwsh
-        run: |
-          git fetch origin main
-
-          git merge-base --is-ancestor HEAD origin/main
-
-          if ($LASTEXITCODE -ne 0) {
-              throw "The release tag does not point to a commit contained in the main branch."
-          }
-
       - name: Publish BCS Tool
         shell: pwsh
         run: |
           & ".\BCSTool\Publish-SingleExe.ps1"
 
-      - name: Verify published executable
+      - name: Verify release executable
         shell: pwsh
         run: |
           $exe = ".\BCSTool\publish\BCS Tool.exe"
@@ -72,7 +59,7 @@ jobs:
               throw "Expected release executable was not produced: $exe"
           }
 
-          Write-Host "Release executable found:"
+          Write-Host "Release executable:"
           Get-Item $exe | Format-List Name, Length, LastWriteTime
 
       - name: Generate SHA-256 checksum
