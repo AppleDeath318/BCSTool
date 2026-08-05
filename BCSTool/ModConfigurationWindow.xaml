@@ -9,7 +9,8 @@
         MinWidth="820"
         MinHeight="650"
         WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False"
+        Closing="Window_Closing">
 
     <Window.Resources>
         <infra:BooleanEnabledDisabledConverter x:Key="BooleanEnabledDisabledConverter"/>

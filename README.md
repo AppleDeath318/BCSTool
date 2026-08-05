@@ -1,4 +1,4 @@
-# BCS Tool
+﻿# BCS Tool
 
 BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedicated server**.
 
@@ -17,6 +17,8 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Automatic server executable detection
 * Server configuration modification
 * Mod configuration modification
+* Save backups
+* Backup restore
 
 ## Requirements
 
@@ -45,6 +47,7 @@ The files automatically provided by GitHub as `Source code (zip)` and `Source co
 2. BCS Tool will try to locate `BannerlordCoopServer.exe` automatically.
 3. If the executable is not detected, use **Browse** to select it manually.
 4. Press **Start** to launch the server.
+5. Configure save-backup rotation under **Server Configuration → Save Backups** if desired.
 
 ## Configuration Editors
 
@@ -65,6 +68,96 @@ Documents\\Mount and Blade II Bannerlord\\CoopData\\mod-config.json
 If either configuration file does not exist yet, start the server once so Bannerlord Coop can generate it.
 
 BCS Tool preserves the existing JSONC structure and comments when saving supported settings, and creates a `.bak` backup before overwriting a configuration file.
+
+## Save Backups
+
+BCS Tool can maintain a rotating history of Bannerlord Coop campaign saves.
+
+A Bannerlord Coop save consists of two companion files with the same base name:
+
+```text
+saveauto1.sav
+saveauto1.json
+```
+
+BCS Tool treats these files as a single save pair. Backup rotation and manual restore always operate on both files together.
+
+### Backup rotation
+
+Backup rotation is configured under **Server Configuration → Save Backups**.
+
+The number of retained backup generations can be set from **1 to 5**.
+
+After the server reports that a save completed successfully, BCS Tool waits for both save files to become stable before creating the next backup generation.
+
+For a save named `saveauto1`, the rotating backups are named:
+
+```text
+saveauto1.backup1.sav
+saveauto1.backup1.json
+
+saveauto1.backup2.sav
+saveauto1.backup2.json
+
+...
+
+saveauto1.backup5.sav
+saveauto1.backup5.json
+```
+
+`backup1` is the newest retained backup. Higher numbers are progressively older.
+
+For example, with three backups retained, a new backup rotates the existing history as follows:
+
+```text
+backup2 -> backup3
+backup1 -> backup2
+current save -> backup1
+```
+
+The active save remains unchanged in name:
+
+```text
+saveauto1.sav
+saveauto1.json
+```
+
+Backup files are stored under:
+
+```text
+Documents\Mount and Blade II Bannerlord\CoopData\DedicatedServer\Game Saves\BCS Backups
+```
+
+The **Open Backup Folder** button opens this directory. The folder is created only after BCS Tool successfully creates its first backup.
+
+Disabling backup rotation stops new backups from being created but does not delete existing backups.
+
+### Manual backup restore
+
+The **Load Backup** button opens a list of available complete backup generations and their modification dates.
+
+A backup can only be loaded while the managed server is **fully stopped**. If the server is starting, running, saving, stopping, restarting, or otherwise not in the normal `Stopped` state, BCS Tool will require the server to be stopped before continuing.
+
+Selecting a backup and pressing **Apply** replaces the current save pair.
+
+For example, loading:
+
+```text
+saveauto1.backup3
+```
+
+restores:
+
+```text
+saveauto1.backup3.sav  -> saveauto1.sav
+saveauto1.backup3.json -> saveauto1.json
+```
+
+The backup files themselves remain in the backup directory after being loaded.
+
+BCS Tool stages the selected pair and temporarily preserves the current active pair while applying the restore to reduce the chance of an ordinary file-copy failure leaving the `.sav` and `.json` files mismatched.
+
+> **Note:** The current system provides rotating backups and manual restore. Automatic save-corruption detection and automatic rollback are not currently implemented.
 
 ## Automatic Restarts
 

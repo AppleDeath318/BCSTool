@@ -1,11 +1,14 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using BCSTool.Models;
 using BCSTool.Services;
+using BCSTool.ViewModels;
 
 namespace BCSTool;
 
@@ -15,20 +18,28 @@ namespace BCSTool;
 public partial class ServerConfigurationWindow : Window
 {
     private readonly CoopConfigService _configService;
+    private readonly MainViewModel _viewModel;
 
     private DedicatedServerConfig _config =
         new();
 
     private bool _updatingPasswordControls;
 
+    private ServerConfigurationSnapshot? _savedConfigurationSnapshot;
+    private bool _configurationLoaded;
+
 
     public ServerConfigurationWindow(
-        CoopConfigService configService)
+        CoopConfigService configService,
+        MainViewModel viewModel)
     {
         InitializeComponent();
 
         _configService =
             configService;
+
+        _viewModel =
+            viewModel;
 
         ConfigPathText.Text =
             _configService.ServerConfigPath;
@@ -49,6 +60,21 @@ public partial class ServerConfigurationWindow : Window
 
             SetPasswordControls(
                 _config.Password);
+
+            SaveBackupsEnabledCheckBox.IsChecked =
+                _viewModel.Settings.SaveBackupsEnabled;
+
+            SaveBackupCountComboBox.ItemsSource =
+                _viewModel.SaveBackupCountOptions;
+
+            SaveBackupCountComboBox.SelectedItem =
+                _viewModel.Settings.SaveBackupCount;
+
+            _savedConfigurationSnapshot =
+                CreateConfigurationSnapshot();
+
+            _configurationLoaded =
+                true;
         }
         catch (Exception ex)
         {
@@ -63,10 +89,12 @@ public partial class ServerConfigurationWindow : Window
 
 
     /// <summary>
-    /// Saves silently on success. Validation and IO failures still show an
-    /// error because the user needs actionable feedback when a save fails.
+    /// Saves Bannerlord's server configuration and BCS Tool's backup-rotation
+    /// settings. The two setting groups intentionally use different storage:
+    /// server-config.json for Bannerlord and the BCS Tool Registry key for the
+    /// backup feature.
     /// </summary>
-    private bool SaveConfiguration()
+    private async Task<bool> SaveConfigurationAsync()
     {
         if (HasValidationErrors(this))
         {
@@ -85,6 +113,21 @@ public partial class ServerConfigurationWindow : Window
             _configService.SaveServerConfig(
                 _config);
 
+            var backupCount =
+                SaveBackupCountComboBox.SelectedItem is int selectedCount
+                    ? selectedCount
+                    : _viewModel.Settings.SaveBackupCount;
+
+            await _viewModel.UpdateSaveBackupSettingsAsync(
+                SaveBackupsEnabledCheckBox.IsChecked == true,
+                backupCount);
+
+            _savedConfigurationSnapshot =
+                CreateConfigurationSnapshot();
+
+            _configurationLoaded =
+                true;
+
             return true;
         }
         catch (Exception ex)
@@ -101,19 +144,84 @@ public partial class ServerConfigurationWindow : Window
     }
 
 
-    private void Save_Click(
-        object sender,
-        RoutedEventArgs e)
+    private ServerConfigurationSnapshot CreateConfigurationSnapshot()
     {
-        SaveConfiguration();
+        var backupCount =
+            SaveBackupCountComboBox.SelectedItem is int selectedCount
+                ? selectedCount
+                : _viewModel.Settings.SaveBackupCount;
+
+        return
+            new ServerConfigurationSnapshot(
+                _config.SaveName,
+                _config.AutosaveMinutes,
+                _config.Password,
+                _config.LogFile,
+                _config.Steam,
+                _config.TraceTick,
+                _config.TracePublish,
+                _config.TraceBandits,
+                SaveBackupsEnabledCheckBox.IsChecked == true,
+                backupCount);
     }
 
 
-    private void SaveAndClose_Click(
+    private bool HasUnsavedChanges()
+    {
+        if (
+            !_configurationLoaded ||
+            _savedConfigurationSnapshot is null)
+        {
+            return false;
+        }
+
+        return
+            _savedConfigurationSnapshot !=
+            CreateConfigurationSnapshot();
+    }
+
+
+    /// <summary>
+    /// Runs for both the Close button and the title-bar X. A successful Save
+    /// refreshes the snapshot, so Save & Close exits without a second prompt.
+    /// </summary>
+    private void Window_Closing(
+        object? sender,
+        CancelEventArgs e)
+    {
+        if (!HasUnsavedChanges())
+            return;
+
+        var result =
+            MessageBox.Show(
+                this,
+                "You have unsaved Server Configuration changes.\n\n" +
+                "Close without saving them?",
+                "Unsaved Changes",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            e.Cancel =
+                true;
+        }
+    }
+
+
+    private async void Save_Click(
         object sender,
         RoutedEventArgs e)
     {
-        if (SaveConfiguration())
+        await SaveConfigurationAsync();
+    }
+
+
+    private async void SaveAndClose_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (await SaveConfigurationAsync())
         {
             Close();
         }
@@ -188,6 +296,103 @@ public partial class ServerConfigurationWindow : Window
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
+    }
+
+
+    /// <summary>
+    /// Opens BCS Tool's rotating-save backup directory:
+    ///
+    /// Documents\Mount and Blade II Bannerlord\CoopData\DedicatedServer\
+    /// Game Saves\BCS Backups
+    ///
+    /// The directory is intentionally not created by this button. It appears
+    /// only after SaveBackupService successfully creates the first backup.
+    /// </summary>
+    private void OpenBackupFolder_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        try
+        {
+            var dedicatedServerDirectory =
+                Path.GetDirectoryName(
+                    _configService.ServerConfigPath);
+
+            if (string.IsNullOrWhiteSpace(dedicatedServerDirectory))
+            {
+                throw new InvalidOperationException(
+                    "Could not determine the DedicatedServer directory.");
+            }
+
+            var backupFolder =
+                Path.Combine(
+                    dedicatedServerDirectory,
+                    "Game Saves",
+                    "BCS Backups");
+
+            if (!Directory.Exists(backupFolder))
+            {
+                MessageBox.Show(
+                    this,
+                    "The backup folder does not exist yet.\n\n" +
+                    "BCS Tool creates the backup folder after it has made at least one save backup.",
+                    "Save Backups",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                return;
+            }
+
+            Process.Start(
+                new ProcessStartInfo
+                {
+                    FileName =
+                        backupFolder,
+                    UseShellExecute =
+                        true
+                });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not open the backup folder.\n\n{ex.Message}",
+                "Save Backups",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+
+    /// <summary>
+    /// Opens the manual backup selector only when the managed Bannerlord
+    /// server is completely stopped.
+    /// </summary>
+    private void LoadBackup_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_viewModel.IsServerFullyStopped)
+        {
+            MessageBox.Show(
+                this,
+                "The server must be fully stopped before loading a backup save.\n\n" +
+                "Stop the server and wait until Server state shows Stopped, then try again.",
+                "Load Save Backup",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            return;
+        }
+
+        var window =
+            new BackupRestoreWindow(
+                _viewModel)
+            {
+                Owner = this
+            };
+
+        window.ShowDialog();
     }
 
 
@@ -296,6 +501,19 @@ public partial class ServerConfigurationWindow : Window
             _updatingPasswordControls = false;
         }
     }
+
+
+    private sealed record ServerConfigurationSnapshot(
+        string SaveName,
+        int AutosaveMinutes,
+        string Password,
+        bool LogFile,
+        bool Steam,
+        bool TraceTick,
+        bool TracePublish,
+        bool TraceBandits,
+        bool SaveBackupsEnabled,
+        int SaveBackupCount);
 
 
     private static bool HasValidationErrors(

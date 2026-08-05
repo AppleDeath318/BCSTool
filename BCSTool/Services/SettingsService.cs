@@ -150,6 +150,21 @@ public sealed class SettingsService
                 nameof(ServerSettings.AutoRestartOnCrash),
                 settings.AutoRestartOnCrash);
 
+        settings.SaveBackupsEnabled =
+            ReadBool(
+                key,
+                nameof(ServerSettings.SaveBackupsEnabled),
+                settings.SaveBackupsEnabled);
+
+        settings.SaveBackupCount =
+            Math.Clamp(
+                ReadInt(
+                    key,
+                    nameof(ServerSettings.SaveBackupCount),
+                    settings.SaveBackupCount),
+                1,
+                5);
+
         settings.BroadcastSaving =
             ReadString(
                 key,
@@ -239,6 +254,40 @@ public sealed class SettingsService
             key,
             nameof(ServerSettings.AutoRestartOnCrash),
             settings.AutoRestartOnCrash);
+
+        return Task.CompletedTask;
+    }
+
+
+    /// <summary>
+    /// Saves only BCS Tool's rotating save-backup settings.
+    /// </summary>
+    public Task SaveBackupSettingsAsync(
+        ServerSettings settings)
+    {
+        using var key =
+            Registry.CurrentUser.CreateSubKey(
+                RegistryPath,
+                writable: true);
+
+        if (key is null)
+        {
+            throw new InvalidOperationException(
+                "Could not create or open the BCS Tool Registry settings key.");
+        }
+
+        WriteBool(
+            key,
+            nameof(ServerSettings.SaveBackupsEnabled),
+            settings.SaveBackupsEnabled);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.SaveBackupCount),
+            Math.Clamp(
+                settings.SaveBackupCount,
+                1,
+                5));
 
         return Task.CompletedTask;
     }
@@ -343,6 +392,19 @@ public sealed class SettingsService
             key,
             nameof(ServerSettings.AutoRestartOnCrash),
             settings.AutoRestartOnCrash);
+
+        WriteBool(
+            key,
+            nameof(ServerSettings.SaveBackupsEnabled),
+            settings.SaveBackupsEnabled);
+
+        WriteInt(
+            key,
+            nameof(ServerSettings.SaveBackupCount),
+            Math.Clamp(
+                settings.SaveBackupCount,
+                1,
+                5));
 
         return Task.CompletedTask;
     }

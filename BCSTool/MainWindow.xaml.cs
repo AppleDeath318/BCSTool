@@ -25,8 +25,7 @@ namespace BCSTool;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel;
-    private readonly CoopConfigService _coopConfigService =
-        new();
+    private readonly CoopConfigService _coopConfigService;
     private readonly DispatcherTimer _terminalResizeTimer;
 
     private bool _allowClose;
@@ -34,11 +33,14 @@ public partial class MainWindow : Window
     private int _lastTerminalColumns = -1;
     private int _lastTerminalRows = -1;
 
-    public MainWindow(MainViewModel viewModel)
+    public MainWindow(
+        MainViewModel viewModel,
+        CoopConfigService coopConfigService)
     {
         InitializeComponent();
 
         _viewModel = viewModel;
+        _coopConfigService = coopConfigService;
         DataContext = _viewModel;
 
         // Window resizing can generate dozens of SizeChanged events per
@@ -267,7 +269,8 @@ public partial class MainWindow : Window
 
         var window =
             new ServerConfigurationWindow(
-                _coopConfigService)
+                _coopConfigService,
+                _viewModel)
             {
                 Owner = this
             };

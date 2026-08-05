@@ -60,6 +60,8 @@ public partial class App : Application
         var restartScheduler = new RestartScheduler();
         var playerRosterTracker = new PlayerRosterTracker();
         var serverExecutableLocator = new ServerExecutableLocator();
+        var coopConfigService = new CoopConfigService();
+        var saveBackupService = new SaveBackupService(coopConfigService);
 
         // MainViewModel coordinates the UI with all server-management logic.
         _viewModel = new MainViewModel(
@@ -69,9 +71,12 @@ public partial class App : Application
             processManager,
             restartScheduler,
             playerRosterTracker,
-            serverExecutableLocator);
+            serverExecutableLocator,
+            saveBackupService);
 
-        var window = new MainWindow(_viewModel);
+        var window = new MainWindow(
+            _viewModel,
+            coopConfigService);
         MainWindow = window;
         window.Show();
     }

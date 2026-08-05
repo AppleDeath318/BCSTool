@@ -1,6 +1,8 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -21,6 +23,8 @@ public partial class ModConfigurationWindow : Window
         new();
 
     private bool _synchronizingOverrideAll;
+    private string _savedConfigurationSnapshot = "";
+    private bool _configurationLoaded;
 
 
     public ModConfigurationWindow(
@@ -49,6 +53,12 @@ public partial class ModConfigurationWindow : Window
                 _config;
 
             SyncOverrideAllFromChildren();
+
+            _savedConfigurationSnapshot =
+                CreateConfigurationSnapshot();
+
+            _configurationLoaded =
+                true;
         }
         catch (Exception ex)
         {
@@ -85,6 +95,12 @@ public partial class ModConfigurationWindow : Window
             _configService.SaveModConfig(
                 _config);
 
+            _savedConfigurationSnapshot =
+                CreateConfigurationSnapshot();
+
+            _configurationLoaded =
+                true;
+
             return true;
         }
         catch (Exception ex)
@@ -97,6 +113,54 @@ public partial class ModConfigurationWindow : Window
                 MessageBoxImage.Error);
 
             return false;
+        }
+    }
+
+
+    private string CreateConfigurationSnapshot()
+    {
+        return
+            JsonSerializer.Serialize(
+                _config);
+    }
+
+
+    private bool HasUnsavedChanges()
+    {
+        if (!_configurationLoaded)
+            return false;
+
+        return
+            !string.Equals(
+                _savedConfigurationSnapshot,
+                CreateConfigurationSnapshot(),
+                StringComparison.Ordinal);
+    }
+
+
+    /// <summary>
+    /// Runs for both the Close button and the title-bar X.
+    /// </summary>
+    private void Window_Closing(
+        object? sender,
+        CancelEventArgs e)
+    {
+        if (!HasUnsavedChanges())
+            return;
+
+        var result =
+            MessageBox.Show(
+                this,
+                "You have unsaved Mod Configuration changes.\n\n" +
+                "Close without saving them?",
+                "Unsaved Changes",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            e.Cancel =
+                true;
         }
     }
 
