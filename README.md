@@ -4,7 +4,7 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
-> \*\*Current release:\*\* v0.2.0
+> \*\*Current release:\*\* v0.2.1
 
 ## Features
 
