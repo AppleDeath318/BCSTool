@@ -26,8 +26,6 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Bannerlord Coop / Bannerlord Coop dedicated server
 * Steam installation is supported for automatic server detection
 
-The published release is self-contained, so users do not need to install the .NET runtime separately.
-
 ## Download
 
 Download the latest compiled version from the repository's **Releases** page.
