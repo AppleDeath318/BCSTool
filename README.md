@@ -9,7 +9,6 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 ## Features
 
 * Manual server restart
-* Last second save before restart to avoid rollback
 * Automatic scheduled restart
 * Restart warning message broadcast
 * Automatic crash recovery
