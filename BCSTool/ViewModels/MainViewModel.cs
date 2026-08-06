@@ -1390,6 +1390,23 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 SaveBackupService.MinimumBackupCount,
                 SaveBackupService.MaximumBackupCount);
 
+        var previousEnabled =
+            Settings.SaveBackupsEnabled;
+
+        var previousBackupCount =
+            Settings.SaveBackupCount;
+
+        var settingsChanged =
+            previousEnabled != enabled ||
+            previousBackupCount != backupCount;
+
+        // Server Configuration always calls this method when Save is pressed.
+        // If the BCS backup settings themselves did not change, avoid Registry
+        // writes and, more importantly, avoid waiting on the backup rotation
+        // lock. This keeps ordinary Server Configuration saves responsive.
+        if (!settingsChanged)
+            return;
+
         Settings.SaveBackupsEnabled =
             enabled;
 
@@ -1399,7 +1416,17 @@ public sealed class MainViewModel : BindableBase, IDisposable
         await _settingsService.SaveBackupSettingsAsync(
             Settings);
 
-        if (enabled)
+        // The filesystem only needs trimming when enabling backup rotation or
+        // when reducing the retention count. Increasing the count does not
+        // require touching any existing backup files.
+        var shouldTrim =
+            enabled &&
+            (
+                !previousEnabled ||
+                backupCount < previousBackupCount
+            );
+
+        if (shouldTrim)
         {
             try
             {
@@ -2340,9 +2367,36 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 inputStart++;
             }
 
+            // Terminal rows contain blank padding to the right edge of the
+            // screen, so we cannot simply keep every trailing space. At the
+            // same time, TrimEnd() is too aggressive because a space the user
+            // just typed at the native prompt is meaningful even when it is
+            // currently the last character.
+            //
+            // Keep content through the final non-whitespace cell, and when the
+            // native cursor is on this prompt row, also keep cells through the
+            // cursor position. This preserves typed trailing spaces while still
+            // discarding unused terminal-row padding.
+            var commandEnd =
+                line.TrimEnd().Length;
+
+            if (snapshot.CursorRow == row)
+            {
+                commandEnd =
+                    Math.Max(
+                        commandEnd,
+                        snapshot.CursorColumn);
+            }
+
+            commandEnd =
+                Math.Clamp(
+                    commandEnd,
+                    inputStart,
+                    line.Length);
+
             var command =
-                inputStart < line.Length
-                    ? line[inputStart..].TrimEnd()
+                inputStart < commandEnd
+                    ? line[inputStart..commandEnd]
                     : "";
 
             CommandText =

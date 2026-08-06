@@ -570,7 +570,7 @@
                                    Text="Maximum looters multiplier"
                                    VerticalAlignment="Center"/>
                         <TextBox Grid.Row="6" Grid.Column="1"
-                                 Text="{Binding MaximumLootersMultiplier, UpdateSourceTrigger=PropertyChanged}"/>
+                                 Text="{Binding MaximumLootersMultiplier, UpdateSourceTrigger=LostFocus}"/>
                         <TextBlock Grid.Row="6" Grid.Column="2"
                                    Text="High values may hurt performance"
                                    Foreground="DarkGoldenrod"

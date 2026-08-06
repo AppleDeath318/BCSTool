@@ -3,6 +3,8 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
+using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -32,6 +34,24 @@ public partial class MainWindow : Window
 
     private int _lastTerminalColumns = -1;
     private int _lastTerminalRows = -1;
+
+    // The command TextBox mirrors Bannerlord's native ConPTY line editor.
+    // Preserve an explicit Ctrl+A selection across terminal redraws until the
+    // user performs an operation that consumes/cancels the selection.
+    private bool _commandSelectAllActive;
+
+    // Space is forwarded explicitly from PreviewKeyDown because WPF does not
+    // always surface it reliably through PreviewTextInput for this proxy-style
+    // read-only/mirrored command field. If a TextInput event also follows, it
+    // is suppressed so the native prompt receives exactly one space.
+    private bool _spaceForwardedFromKeyDown;
+
+    // Local optimistic command state. ConPTY echo/redraw can lag behind input
+    // by one or more keystrokes, especially for trailing spaces. Keep the WPF
+    // command box immediately responsive and ignore stale native snapshots
+    // until Bannerlord catches up to the text we have already sent.
+    private string? _pendingCommandText;
+    private int _pendingCommandCaretIndex;
 
     public MainWindow(
         MainViewModel viewModel,
@@ -85,7 +105,7 @@ public partial class MainWindow : Window
 
         // Settings/status changes during initialization can slightly alter the
         // remaining console height, so measure once more afterward.
-        Dispatcher.BeginInvoke(
+        _ = Dispatcher.BeginInvoke(
             DispatcherPriority.Loaded,
             new Action(
                 ResizeTerminalToViewport));
@@ -408,7 +428,41 @@ public partial class MainWindow : Window
             return;
         }
 
-        e.Handled = true;
+        // Space is sent explicitly from PreviewKeyDown. Some WPF input paths
+        // still raise a TextInput event afterward; suppress only that duplicate.
+        if (_spaceForwardedFromKeyDown)
+        {
+            var isForwardedSpace =
+                e.Text == " ";
+
+            _spaceForwardedFromKeyDown =
+                false;
+
+            if (isForwardedSpace)
+            {
+                e.Handled =
+                    true;
+
+                return;
+            }
+        }
+
+        e.Handled =
+            true;
+
+        if (CommandInput.SelectionLength > 0)
+        {
+            await ReplaceNativeCommandSelectionAsync(
+                e.Text);
+
+            return;
+        }
+
+        _commandSelectAllActive =
+            false;
+
+        InsertOptimisticCommandText(
+            e.Text);
 
         await _viewModel.SendTerminalInputAsync(
             e.Text);
@@ -442,18 +496,130 @@ public partial class MainWindow : Window
         if (!_viewModel.IsServerRunning)
             return;
 
-        // Ctrl+V: emulate terminal paste instead of allowing WPF to modify its
-        // local mirror independently from the native prompt.
+        var modifiers =
+            Keyboard.Modifiers;
+
+        var controlPressed =
+            (modifiers & ModifierKeys.Control) != 0;
+
+        // Ctrl+A is a WPF selection operation, not a native terminal editing
+        // command. Keep Bannerlord's command line unchanged and select the
+        // mirrored line locally. Later typing, Backspace/Delete, Cut, or Paste
+        // translates that selection back into native cursor/delete sequences.
         if (
-            e.Key == Key.V &&
-            (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            controlPressed &&
+            e.Key == Key.A)
         {
-            e.Handled = true;
+            e.Handled =
+                true;
+
+            _commandSelectAllActive =
+                true;
+
+            CommandInput.SelectAll();
+
+            return;
+        }
+
+        // Ctrl+C copies the mirrored selection without sending the terminal's
+        // ETX (Ctrl+C) byte, which could have unrelated process semantics.
+        if (
+            controlPressed &&
+            e.Key == Key.C &&
+            CommandInput.SelectionLength > 0)
+        {
+            e.Handled =
+                true;
+
+            Clipboard.SetText(
+                CommandInput.SelectedText);
+
+            return;
+        }
+
+        // Ctrl+X must remove the same characters from Bannerlord's native line
+        // rather than only cutting the WPF mirror.
+        if (
+            controlPressed &&
+            e.Key == Key.X &&
+            CommandInput.SelectionLength > 0)
+        {
+            e.Handled =
+                true;
+
+            Clipboard.SetText(
+                CommandInput.SelectedText);
+
+            await ReplaceNativeCommandSelectionAsync(
+                "");
+
+            return;
+        }
+
+        // Ctrl+V: emulate terminal paste instead of allowing WPF to modify its
+        // local mirror independently from the native prompt. If text is
+        // selected, paste replaces the corresponding native selection.
+        if (
+            controlPressed &&
+            e.Key == Key.V)
+        {
+            e.Handled =
+                true;
 
             if (Clipboard.ContainsText())
             {
+                var clipboardText =
+                    Clipboard.GetText();
+
+                if (CommandInput.SelectionLength > 0)
+                {
+                    await ReplaceNativeCommandSelectionAsync(
+                        clipboardText);
+                }
+                else
+                {
+                    _commandSelectAllActive =
+                        false;
+
+                    InsertOptimisticCommandText(
+                        clipboardText);
+
+                    await _viewModel.SendTerminalInputAsync(
+                        clipboardText);
+                }
+            }
+
+            return;
+        }
+
+        // Forward Space explicitly. This avoids relying on WPF's text
+        // composition path for a key that can otherwise disappear while the
+        // TextBox is acting as a mirror of a native line editor.
+        if (
+            e.Key == Key.Space &&
+            (modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) == 0)
+        {
+            e.Handled =
+                true;
+
+            _spaceForwardedFromKeyDown =
+                true;
+
+            if (CommandInput.SelectionLength > 0)
+            {
+                await ReplaceNativeCommandSelectionAsync(
+                    " ");
+            }
+            else
+            {
+                _commandSelectAllActive =
+                    false;
+
+                InsertOptimisticCommandText(
+                    " ");
+
                 await _viewModel.SendTerminalInputAsync(
-                    Clipboard.GetText());
+                    " ");
             }
 
             return;
@@ -465,6 +631,11 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
 
+            _commandSelectAllActive =
+                false;
+
+            ClearOptimisticCommandState();
+
             if (
                 _viewModel.SendCommandCommand.CanExecute(
                     null))
@@ -474,6 +645,150 @@ public partial class MainWindow : Window
             }
 
             return;
+        }
+
+        // Normal WPF semantics: Backspace/Delete removes the entire selected
+        // range, not just one character from Bannerlord's current caret.
+        if (
+            CommandInput.SelectionLength > 0 &&
+            (e.Key == Key.Back || e.Key == Key.Delete))
+        {
+            e.Handled =
+                true;
+
+            await ReplaceNativeCommandSelectionAsync(
+                "");
+
+            return;
+        }
+
+        // Standard TextBox behavior with an active selection:
+        //
+        // Left  -> collapse selection to its beginning.
+        // Right -> collapse selection to its end.
+        //
+        // Bannerlord's native line editor does not know about the WPF
+        // selection, so sending a single Left/Right would move from the native
+        // caret instead. For Ctrl+A that native caret is normally still at the
+        // end of the command, which causes an immediate desync. Reposition the
+        // native caret absolutely from HOME so both editors collapse to the
+        // same location.
+        if (
+            CommandInput.SelectionLength > 0 &&
+            (e.Key == Key.Left || e.Key == Key.Right) &&
+            (modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) == 0)
+        {
+            e.Handled =
+                true;
+
+            var selectionStart =
+                Math.Clamp(
+                    CommandInput.SelectionStart,
+                    0,
+                    CommandInput.Text.Length);
+
+            var selectionEnd =
+                Math.Clamp(
+                    selectionStart + CommandInput.SelectionLength,
+                    0,
+                    CommandInput.Text.Length);
+
+            var targetCaret =
+                e.Key == Key.Left
+                    ? selectionStart
+                    : selectionEnd;
+
+            _commandSelectAllActive =
+                false;
+
+            SetOptimisticCaret(
+                targetCaret);
+
+            var selectionNavigationSequence =
+                new StringBuilder();
+
+            selectionNavigationSequence.Append(
+                "\x1B[H");
+
+            for (
+                var index = 0;
+                index < targetCaret;
+                index++)
+            {
+                selectionNavigationSequence.Append(
+                    "\x1B[C");
+            }
+
+            await _viewModel.SendTerminalInputAsync(
+                selectionNavigationSequence.ToString());
+
+            return;
+        }
+
+        // Any explicit navigation/history/autocomplete key cancels a local
+        // Ctrl+A selection. Deterministic caret movement (Left/Right/Home/End)
+        // stays optimistic so stale ConPTY redraws cannot snap the WPF caret
+        // back to its previous position. Tab/history are native operations
+        // whose resulting text is not predictable locally, so those return
+        // authority to Bannerlord immediately.
+        if (
+            e.Key is Key.Tab or
+                Key.Up or
+                Key.Down or
+                Key.Right or
+                Key.Left or
+                Key.Home or
+                Key.End or
+                Key.Escape)
+        {
+            _commandSelectAllActive =
+                false;
+        }
+
+        if (
+            e.Key is Key.Tab or
+                Key.Up or
+                Key.Down or
+                Key.Escape)
+        {
+            ClearOptimisticCommandState();
+        }
+        else if (
+            e.Key == Key.Left)
+        {
+            ApplyOptimisticCaretMove(
+                -1);
+        }
+        else if (
+            e.Key == Key.Right)
+        {
+            ApplyOptimisticCaretMove(
+                1);
+        }
+        else if (
+            e.Key == Key.Home)
+        {
+            SetOptimisticCaret(
+                0);
+        }
+        else if (
+            e.Key == Key.End)
+        {
+            SetOptimisticCaret(
+                CommandInput.Text.Length);
+        }
+
+        if (
+            CommandInput.SelectionLength == 0 &&
+            e.Key == Key.Back)
+        {
+            ApplyOptimisticBackspace();
+        }
+        else if (
+            CommandInput.SelectionLength == 0 &&
+            e.Key == Key.Delete)
+        {
+            ApplyOptimisticDelete();
         }
 
         string? sequence =
@@ -529,6 +844,260 @@ public partial class MainWindow : Window
 
 
     /// <summary>
+    /// Replaces the current WPF command selection in Bannerlord's native line
+    /// editor using cursor movement + Delete sequences.
+    ///
+    /// The WPF TextBox is only a mirror, so changing SelectedText locally would
+    /// immediately be overwritten by the next terminal snapshot. This method
+    /// performs the equivalent edit against the actual ConPTY prompt.
+    /// </summary>
+    private async Task ReplaceNativeCommandSelectionAsync(
+        string replacement)
+    {
+        var currentText =
+            CommandInput.Text;
+
+        var selectionStart =
+            Math.Clamp(
+                CommandInput.SelectionStart,
+                0,
+                currentText.Length);
+
+        var selectionLength =
+            Math.Clamp(
+                CommandInput.SelectionLength,
+                0,
+                currentText.Length - selectionStart);
+
+        if (selectionLength <= 0)
+        {
+            _commandSelectAllActive =
+                false;
+
+            if (!string.IsNullOrEmpty(replacement))
+            {
+                InsertOptimisticCommandText(
+                    replacement);
+
+                await _viewModel.SendTerminalInputAsync(
+                    replacement);
+            }
+
+            return;
+        }
+
+        var replacementText =
+            currentText.Remove(
+                selectionStart,
+                selectionLength)
+            .Insert(
+                selectionStart,
+                replacement);
+
+        var replacementCaret =
+            selectionStart +
+            replacement.Length;
+
+        // Anchor editing from native HOME rather than from the last mirrored
+        // caret. ConPTY snapshots can lag behind (most visibly after a trailing
+        // space), so relative movement from CommandCaretIndex can be off by one.
+        //
+        // HOME -> move right to selection start -> Delete selected range ->
+        // insert replacement.
+        var sequence =
+            new StringBuilder();
+
+        sequence.Append(
+            "\x1B[H");
+
+        for (
+            var index = 0;
+            index < selectionStart;
+            index++)
+        {
+            sequence.Append(
+                "\x1B[C");
+        }
+
+        for (
+            var index = 0;
+            index < selectionLength;
+            index++)
+        {
+            sequence.Append(
+                "\x1B[3~");
+        }
+
+        sequence.Append(
+            replacement);
+
+        _commandSelectAllActive =
+            false;
+
+        SetOptimisticCommandState(
+            replacementText,
+            replacementCaret);
+
+        await _viewModel.SendTerminalInputAsync(
+            sequence.ToString());
+    }
+
+
+    /// <summary>
+    /// Inserts text into the local command mirror immediately. Bannerlord still
+    /// receives the same raw input; this only avoids waiting for terminal echo
+    /// before the WPF textbox reflects what the user typed.
+    /// </summary>
+    private void InsertOptimisticCommandText(
+        string insertedText)
+    {
+        if (string.IsNullOrEmpty(insertedText))
+            return;
+
+        var currentText =
+            CommandInput.Text;
+
+        var caret =
+            Math.Clamp(
+                CommandInput.CaretIndex,
+                0,
+                currentText.Length);
+
+        var updatedText =
+            currentText.Insert(
+                caret,
+                insertedText);
+
+        SetOptimisticCommandState(
+            updatedText,
+            caret + insertedText.Length);
+    }
+
+
+    private void ApplyOptimisticBackspace()
+    {
+        var currentText =
+            CommandInput.Text;
+
+        var caret =
+            Math.Clamp(
+                CommandInput.CaretIndex,
+                0,
+                currentText.Length);
+
+        if (caret <= 0)
+            return;
+
+        var updatedText =
+            currentText.Remove(
+                caret - 1,
+                1);
+
+        SetOptimisticCommandState(
+            updatedText,
+            caret - 1);
+    }
+
+
+    private void ApplyOptimisticDelete()
+    {
+        var currentText =
+            CommandInput.Text;
+
+        var caret =
+            Math.Clamp(
+                CommandInput.CaretIndex,
+                0,
+                currentText.Length);
+
+        if (caret >= currentText.Length)
+            return;
+
+        var updatedText =
+            currentText.Remove(
+                caret,
+                1);
+
+        SetOptimisticCommandState(
+            updatedText,
+            caret);
+    }
+
+
+    private void ApplyOptimisticCaretMove(
+        int delta)
+    {
+        var currentText =
+            CommandInput.Text;
+
+        var currentCaret =
+            Math.Clamp(
+                CommandInput.CaretIndex,
+                0,
+                currentText.Length);
+
+        SetOptimisticCommandState(
+            currentText,
+            Math.Clamp(
+                currentCaret + delta,
+                0,
+                currentText.Length));
+    }
+
+
+    private void SetOptimisticCaret(
+        int caret)
+    {
+        var currentText =
+            CommandInput.Text;
+
+        SetOptimisticCommandState(
+            currentText,
+            Math.Clamp(
+                caret,
+                0,
+                currentText.Length));
+    }
+
+
+    private void SetOptimisticCommandState(
+        string text,
+        int caret)
+    {
+        _pendingCommandText =
+            text;
+
+        _pendingCommandCaretIndex =
+            Math.Clamp(
+                caret,
+                0,
+                text.Length);
+
+        // SetCurrentValue preserves the existing WPF binding while updating the
+        // displayed value immediately.
+        CommandInput.SetCurrentValue(
+            System.Windows.Controls.TextBox.TextProperty,
+            text);
+
+        CommandInput.CaretIndex =
+            _pendingCommandCaretIndex;
+
+        CommandInput.SelectionLength =
+            0;
+    }
+
+
+    private void ClearOptimisticCommandState()
+    {
+        _pendingCommandText =
+            null;
+
+        _pendingCommandCaretIndex =
+            0;
+    }
+
+
+    /// <summary>
     /// Applies Bannerlord's native prompt cursor to the WPF command mirror.
     ///
     /// TextBox.CaretIndex is not bindable, so this small view-only bridge is
@@ -545,15 +1114,65 @@ public partial class MainWindow : Window
             return;
         }
 
-        Dispatcher.BeginInvoke(
+        _ = Dispatcher.BeginInvoke(
             DispatcherPriority.Input,
             new Action(() =>
             {
+                // If we already sent newer local input, a ConPTY redraw may
+                // still contain an older prompt or an older cursor position.
+                // Do not let that stale snapshot make the textbox/caret jump
+                // backward. Bannerlord is considered caught up only when BOTH
+                // its text and native caret match the optimistic local state.
+                if (_pendingCommandText is not null)
+                {
+                    var nativeCaughtUp =
+                        string.Equals(
+                            _viewModel.CommandText,
+                            _pendingCommandText,
+                            StringComparison.Ordinal) &&
+                        _viewModel.CommandCaretIndex ==
+                            _pendingCommandCaretIndex;
+
+                    if (!nativeCaughtUp)
+                    {
+                        CommandInput.SetCurrentValue(
+                            System.Windows.Controls.TextBox.TextProperty,
+                            _pendingCommandText);
+
+                        CommandInput.CaretIndex =
+                            Math.Clamp(
+                                _pendingCommandCaretIndex,
+                                0,
+                                CommandInput.Text.Length);
+
+                        if (_commandSelectAllActive)
+                        {
+                            CommandInput.SelectAll();
+                        }
+                        else
+                        {
+                            CommandInput.SelectionLength =
+                                0;
+                        }
+
+                        return;
+                    }
+
+                    ClearOptimisticCommandState();
+                }
+
                 var caret =
                     Math.Clamp(
                         _viewModel.CommandCaretIndex,
                         0,
                         CommandInput.Text.Length);
+
+                if (_commandSelectAllActive)
+                {
+                    CommandInput.SelectAll();
+
+                    return;
+                }
 
                 CommandInput.CaretIndex =
                     caret;

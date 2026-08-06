@@ -107,14 +107,8 @@ public sealed class SaveBackupService
             Directory.CreateDirectory(
                 BackupDirectory);
 
-            // The backup filename changed from ".bcsN" to ".backupN".
-            // Preserve existing complete backup pairs by migrating them before
-            // any new rotation takes place.
-            RemoveIncompleteBackupPairs(
-                activePair.BaseName);
-// Older prototypes could also leave only one half of a save pair.
-            // Remove those incomplete generations so restore never combines a
-            // .sav and .json from different points in time.
+            // Remove an incomplete generation before rotating. A backup is
+            // usable only when both the .sav and companion .json exist.
             RemoveIncompleteBackupPairs(
                 activePair.BaseName);
 
@@ -214,8 +208,6 @@ public sealed class SaveBackupService
 
             RemoveIncompleteBackupPairs(
                 activePair.BaseName);
-RemoveIncompleteBackupPairs(
-                activePair.BaseName);
 
             DeleteBeyondRetention(
                 activePair.BaseName,
@@ -252,8 +244,6 @@ RemoveIncompleteBackupPairs(
             }
 
             RemoveIncompleteBackupPairs(
-                activePair.BaseName);
-RemoveIncompleteBackupPairs(
                 activePair.BaseName);
 
             var results =
@@ -344,8 +334,6 @@ RemoveIncompleteBackupPairs(
             }
 
             RemoveIncompleteBackupPairs(
-                activePair.BaseName);
-RemoveIncompleteBackupPairs(
                 activePair.BaseName);
 
             var selectedBackup =

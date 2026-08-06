@@ -73,7 +73,7 @@
                            FontSize="20"
                            FontWeight="SemiBold"/>
 
-                <TextBlock Text="Bannerlord settings are written to server-config.json. BCS save-backup settings are stored by BCS Tool and apply immediately."
+                <TextBlock Text="Settings are written to server-config.json"
                            TextWrapping="Wrap"
                            Margin="0,4,0,10"/>
 
