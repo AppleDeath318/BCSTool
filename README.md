@@ -170,28 +170,6 @@ Before a scheduled restart, it can:
 
 Crash recovery can also restart the server automatically if the managed process exits unexpectedly.
 
-## Server Console
-
-The Server Console is backed by a Windows pseudoconsole (ConPTY), allowing BCS Tool to display the server's native terminal UI inside the application.
-
-Supported behavior includes:
-
-* ANSI terminal colors
-* Native command editing
-* Tab completion
-* Shift+Tab completion
-* Arrow keys
-* Home / End
-* Delete / Backspace
-* Escape
-* Clipboard paste with Ctrl+V
-
-Diagnostic logs are stored under:
-
-```text
-%LOCALAPPDATA%\\BCSServerTool\\Logs
-```
-
 ## Building from Source
 
 BCS Tool is a WPF application targeting:
