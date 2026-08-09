@@ -494,6 +494,24 @@ public sealed class CoopConfigService
                 "maximumLootersMultiplier",
                 1.0);
 
+        config.LordDefectionRetries =
+            GetString(
+                modOptions,
+                "lordDefectionRetries",
+                "Vanilla");
+
+        config.EnableHeroExecutions =
+            GetBool(
+                modOptions,
+                "enableHeroExecutions",
+                true);
+
+        config.EnablePlayerClanMemberExecutions =
+            GetBool(
+                modOptions,
+                "enablePlayerClanMemberExecutions",
+                false);
+
         return config;
     }
 
@@ -573,6 +591,14 @@ public sealed class CoopConfigService
         {
             throw new InvalidOperationException(
                 "Maximum looters multiplier cannot be negative.");
+        }
+
+        if (
+            config.LordDefectionRetries is not
+                ("Vanilla" or "NeverExpire" or "AlwaysRetry"))
+        {
+            throw new InvalidOperationException(
+                "Lord defection retries must be Vanilla, NeverExpire, or AlwaysRetry.");
         }
 
 
@@ -771,6 +797,27 @@ public sealed class CoopConfigService
                 "maximumLootersMultiplier",
                 config.MaximumLootersMultiplier.ToString(
                     CultureInfo.InvariantCulture));
+
+        text =
+            SetRequiredKey(
+                text,
+                "lordDefectionRetries",
+                JsonSerializer.Serialize(
+                    config.LordDefectionRetries));
+
+        text =
+            SetRequiredKey(
+                text,
+                "enableHeroExecutions",
+                ToJsonBool(
+                    config.EnableHeroExecutions));
+
+        text =
+            SetRequiredKey(
+                text,
+                "enablePlayerClanMemberExecutions",
+                ToJsonBool(
+                    config.EnablePlayerClanMemberExecutions));
 
 
         SaveWithBackup(

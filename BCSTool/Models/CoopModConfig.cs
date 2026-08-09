@@ -78,4 +78,10 @@ public sealed class CoopModConfig
     public double SmithingStaminaRecoveryMultiplier { get; set; } = 0.1;
 
     public double MaximumLootersMultiplier { get; set; } = 1.0;
+
+    public string LordDefectionRetries { get; set; } = "Vanilla";
+
+    public bool EnableHeroExecutions { get; set; } = true;
+
+    public bool EnablePlayerClanMemberExecutions { get; set; }
 }
