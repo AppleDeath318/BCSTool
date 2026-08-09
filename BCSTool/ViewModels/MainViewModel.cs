@@ -545,92 +545,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (_processManager.IsRunning)
                 return;
 
-            var validation = Settings.Validate();
-
-            if (validation.Count > 0)
-            {
-                ServerState = ServerState.Error;
-                StatusMessage = string.Join(" ", validation);
-                AddToolMessage("Settings validation failed: " + StatusMessage);
-                return;
-            }
-
-            var executablePath = Settings.ResolveServerExecutablePath();
-            var workingDirectory = Settings.ResolveServerDirectory();
-
-            if (!File.Exists(executablePath))
-            {
-                ServerState = ServerState.Error;
-                StatusMessage = $"Server executable not found: {executablePath}";
-                AddToolMessage(StatusMessage);
-                return;
-            }
-
-            // Do not knowingly start a second server executable.
-            if (_processManager.HasExternalServerProcess(executablePath))
-            {
-                ServerState = ServerState.PortBlocked;
-                StatusMessage =
-                    "Another BannerlordCoopServer process already exists. " +
-                    "BCS Tool will not start a duplicate. " +
-                    "If you previously stopped a Visual Studio debug session, " +
-                    "this may be a leftover process from that run.";
-                AddToolMessage(StatusMessage);
-                return;
-            }
-
-            // Optional network-port guard.
-            //
-            // ServerPort = 0 disables this check. This is safer than assuming
-            // that an arbitrary port shown in server console output is the
-            // server's exclusive listening port.
-            if (
-                Settings.ServerPort > 0 &&
-                _portMonitor.IsPortInUse(Settings.ServerPort))
-            {
-                ServerState = ServerState.PortBlocked;
-                StatusMessage =
-                    $"Port {Settings.ServerPort} is already in use. " +
-                    "BCS Tool will not start another server while that configured port is occupied.";
-                AddToolMessage(StatusMessage);
-                return;
-            }
-
-            _serverReady = false;
-            _nextRestartAt = null;
-            _lastWarningKey = null;
-            ResetCrashOutputDetection();
-            ResetPlayerRoster();
-
-            // Do not let the previous process's footer status linger while a
-            // new ConPTY screen is being created.
-            SetNativeServerStatus("");
-
-            ServerState = ServerState.Starting;
-            StatusMessage = "Starting Bannerlord server...";
-
-            var started = await _processManager.StartAsync(
-                executablePath,
-                workingDirectory,
-                _lifetimeCts.Token);
-
-            if (!started)
-            {
-                ServerState = ServerState.Error;
-                StatusMessage = "Server process failed to start.";
-                AddToolMessage(StatusMessage);
-                return;
-            }
-
-            ServerPidText = _processManager.ProcessId?.ToString() ?? "-";
-            ServerState = ServerState.WaitingForReady;
-            StatusMessage =
-                $"Waiting for: {Settings.ReadyText}";
-
-            AddToolMessage(
-                $"Server process started. PID {_processManager.ProcessId}.");
-            AddToolMessage(
-                "Scheduled automation remains disabled until readiness is detected.");
+            await StartServerWhileLockedAsync(
+                logAutomationDisabledMessage: true);
         }
         finally
         {
@@ -654,28 +570,13 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (!_processManager.IsRunning)
                 return;
 
-            ServerState = ServerState.Saving;
-            StatusMessage = "Saving server...";
-
-            await BroadcastAsync(Settings.BroadcastSaving);
-            await Task.Delay(1000, _lifetimeCts.Token);
-
-            var sent = await _processManager.SendCommandAsync(
-                "save",
-                _lifetimeCts.Token);
-
-            if (!sent)
+            if (!await TrySaveServerAsync(
+                    "Saving server...",
+                    broadcastSavingMessage: true,
+                    logCommandSent: true))
             {
-                ServerState = ServerState.Error;
-                StatusMessage = "Could not send save command.";
                 return;
             }
-
-            AddToolMessage("Save command sent.");
-
-            await Task.Delay(
-                TimeSpan.FromSeconds(Settings.SaveWaitSeconds),
-                _lifetimeCts.Token);
 
             ServerState = _serverReady
                 ? ServerState.Ready
@@ -688,6 +589,46 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _operationLock.Release();
             CommandManager.InvalidateRequerySuggested();
         }
+    }
+
+
+    /// <summary>
+    /// Sends the save sequence shared by manual saves and controlled restarts.
+    /// The caller must already hold _operationLock.
+    /// </summary>
+    private async Task<bool> TrySaveServerAsync(
+        string statusMessage,
+        bool broadcastSavingMessage,
+        bool logCommandSent)
+    {
+        ServerState = ServerState.Saving;
+        StatusMessage = statusMessage;
+
+        if (broadcastSavingMessage)
+        {
+            await BroadcastAsync(Settings.BroadcastSaving);
+            await Task.Delay(
+                TimeSpan.FromSeconds(1),
+                _lifetimeCts.Token);
+        }
+
+        if (!await _processManager.SendCommandAsync(
+                "save",
+                _lifetimeCts.Token))
+        {
+            ServerState = ServerState.Error;
+            StatusMessage = "Could not send save command.";
+            return false;
+        }
+
+        if (logCommandSent)
+            AddToolMessage("Save command sent.");
+
+        await Task.Delay(
+            TimeSpan.FromSeconds(Settings.SaveWaitSeconds),
+            _lifetimeCts.Token);
+
+        return true;
     }
 
     /// <summary>
@@ -721,27 +662,18 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
             AddToolMessage($"Restart sequence started: {reason}");
 
-            ServerState = ServerState.Saving;
-            StatusMessage = "Saving before restart...";
-
-            await BroadcastAsync(Settings.BroadcastSaving);
-            await Task.Delay(1000, _lifetimeCts.Token);
-
-            if (!await _processManager.SendCommandAsync(
-                    "save",
-                    _lifetimeCts.Token))
+            if (!await TrySaveServerAsync(
+                    "Saving before restart...",
+                    broadcastSavingMessage: true,
+                    logCommandSent: false))
             {
-                ServerState = ServerState.Error;
-                StatusMessage = "Could not send save command.";
                 return;
             }
 
-            await Task.Delay(
-                TimeSpan.FromSeconds(Settings.SaveWaitSeconds),
-                _lifetimeCts.Token);
-
             await BroadcastAsync(Settings.BroadcastRestarting);
-            await Task.Delay(2000, _lifetimeCts.Token);
+            await Task.Delay(
+                TimeSpan.FromSeconds(2),
+                _lifetimeCts.Token);
 
             ServerState = ServerState.Stopping;
             StatusMessage = "Stopping server gracefully...";
@@ -825,13 +757,45 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// StartServerAsync method would deadlock trying to acquire the same lock
     /// again. This method performs startup while reusing the existing lock.
     /// </summary>
-    private async Task StartServerWhileLockedAsync()
+    private async Task StartServerWhileLockedAsync(
+        bool logAutomationDisabledMessage = false)
     {
         if (_applicationClosing)
             return;
 
+        var validation = Settings.Validate();
+
+        if (validation.Count > 0)
+        {
+            ServerState = ServerState.Error;
+            StatusMessage = string.Join(" ", validation);
+            AddToolMessage("Settings validation failed: " + StatusMessage);
+            return;
+        }
+
         var executablePath = Settings.ResolveServerExecutablePath();
         var workingDirectory = Settings.ResolveServerDirectory();
+
+        if (!File.Exists(executablePath))
+        {
+            ServerState = ServerState.Error;
+            StatusMessage =
+                $"Server executable not found: {executablePath}";
+            AddToolMessage(StatusMessage);
+            return;
+        }
+
+        if (_processManager.HasExternalServerProcess(executablePath))
+        {
+            ServerState = ServerState.PortBlocked;
+            StatusMessage =
+                "Another BannerlordCoopServer process already exists. " +
+                "BCS Tool will not start a duplicate. " +
+                "If you previously stopped a Visual Studio debug session, " +
+                "this may be a leftover process from that run.";
+            AddToolMessage(StatusMessage);
+            return;
+        }
 
         if (
             Settings.ServerPort > 0 &&
@@ -839,7 +803,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
         {
             ServerState = ServerState.PortBlocked;
             StatusMessage =
-                $"Port {Settings.ServerPort} is still in use. Server not started.";
+                $"Port {Settings.ServerPort} is already in use. " +
+                "BCS Tool will not start another server while that configured port is occupied.";
+            AddToolMessage(StatusMessage);
             return;
         }
 
@@ -849,27 +815,39 @@ public sealed class MainViewModel : BindableBase, IDisposable
         ResetCrashOutputDetection();
         ResetPlayerRoster();
 
+        // Prevent the previous process's native status from surviving into a
+        // newly-created ConPTY screen.
+        SetNativeServerStatus("");
+
         ServerState = ServerState.Starting;
         StatusMessage = "Starting Bannerlord server...";
 
-        var started = await _processManager.StartAsync(
-            executablePath,
-            workingDirectory,
-            _lifetimeCts.Token);
-
-        if (!started)
+        if (!await _processManager.StartAsync(
+                executablePath,
+                workingDirectory,
+                _lifetimeCts.Token))
         {
             ServerState = ServerState.Error;
             StatusMessage = "Server process failed to start.";
+            AddToolMessage(StatusMessage);
             return;
         }
 
-        ServerPidText = _processManager.ProcessId?.ToString() ?? "-";
+        ServerPidText =
+            _processManager.ProcessId?.ToString() ?? "-";
+
         ServerState = ServerState.WaitingForReady;
-        StatusMessage = $"Waiting for: {Settings.ReadyText}";
+        StatusMessage =
+            $"Waiting for: {Settings.ReadyText}";
 
         AddToolMessage(
             $"Server process started. PID {_processManager.ProcessId}.");
+
+        if (logAutomationDisabledMessage)
+        {
+            AddToolMessage(
+                "Scheduled automation remains disabled until readiness is detected.");
+        }
     }
 
     /// <summary>
@@ -980,13 +958,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// keys. No BCS Tool command database is involved.
     /// </summary>
     public Task<bool> SendTerminalInputAsync(
-        string input)
-    {
-        return
-            _processManager.SendRawInputAsync(
-                input,
-                _lifetimeCts.Token);
-    }
+        string input) =>
+        _processManager.SendRawInputAsync(
+            input,
+            _lifetimeCts.Token);
 
     /// <summary>
     /// Convenience helper translating a human-readable message into the
@@ -1187,10 +1162,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
     /// <summary>
-    /// Opens a normal Windows file picker so the user can locate
-    /// BannerlordCoopServer.exe without editing JSON manually.
-    /// </summary>
-    /// <summary>
     /// Restores only the Restart Settings panel to its built-in defaults and
     /// persists those restart defaults immediately.
     ///
@@ -1242,6 +1213,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
 
+    /// <summary>
+    /// Lets the user select BannerlordCoopServer.exe and persists that path
+    /// independently from the restart settings.
+    /// </summary>
     private async Task BrowseServerExecutableAsync()
     {
         var dialog = new OpenFileDialog
@@ -2701,51 +2676,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 return;
             }
 
-            // Freeze the newest complete retained backup as a dedicated
-            // crash recovery point. This NEVER changes the active save:
-            // Bannerlord still restarts from the current configured save pair.
-            //
-            // Capture it even when automatic restart is disabled, because the
-            // manual recovery point is still useful after any detected crash.
-            StatusMessage =
-                "Creating crash backup from newest retained save...";
-
-            try
-            {
-                var crashBackup =
-                    await _saveBackupService.CreateCrashBackupFromNewestBackupAsync(
-                        _lifetimeCts.Token);
-
-                if (crashBackup is null)
-                {
-                    AddToolMessage(
-                        "No complete retained save backup is available for a crash snapshot. " +
-                        "The current active save was left unchanged.");
-                }
-                else
-                {
-                    AddToolMessage(
-                        $"Crash backup created from {crashBackup.SourceBackupName}: " +
-                        $"{Path.GetFileName(crashBackup.SavPath)} + " +
-                        $"{Path.GetFileName(crashBackup.JsonPath)}.");
-
-                    AddToolMessage(
-                        "The active save was not rolled back. If it later proves corrupted, " +
-                        $"stop the server and load {crashBackup.CrashBackupName} manually.");
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Snapshot failure must not replace or block the current save.
-                AddToolMessage(
-                    $"Warning: crash backup could not be created: {ex.Message}");
-                AddToolMessage(
-                    "The current active save was left unchanged.");
-            }
+            await CreateCrashBackupAfterFailureAsync();
 
             if (!Settings.AutoRestartOnCrash)
             {
@@ -2798,6 +2729,53 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _crashRecoveryRunning = false;
         }
     }
+
+    /// <summary>
+    /// Freezes the newest retained backup as a manual recovery point after a
+    /// crash. Failure to create the snapshot never blocks normal crash restart.
+    /// </summary>
+    private async Task CreateCrashBackupAfterFailureAsync()
+    {
+        StatusMessage =
+            "Creating crash backup from newest retained save...";
+
+        try
+        {
+            var crashBackup =
+                await _saveBackupService.CreateCrashBackupFromNewestBackupAsync(
+                    _lifetimeCts.Token);
+
+            if (crashBackup is null)
+            {
+                AddToolMessage(
+                    "No complete retained save backup is available for a crash snapshot. " +
+                    "The current active save was left unchanged.");
+                return;
+            }
+
+            AddToolMessage(
+                $"Crash backup created from {crashBackup.SourceBackupName}: " +
+                $"{Path.GetFileName(crashBackup.SavPath)} + " +
+                $"{Path.GetFileName(crashBackup.JsonPath)}.");
+
+            AddToolMessage(
+                "The active save was not rolled back. If it later proves corrupted, " +
+                $"stop the server and load {crashBackup.CrashBackupName} manually.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Snapshot failure must not replace or block the current save.
+            AddToolMessage(
+                $"Warning: crash backup could not be created: {ex.Message}");
+            AddToolMessage(
+                "The current active save was left unchanged.");
+        }
+    }
+
 
     /// <summary>
     /// Background scheduler loop.
