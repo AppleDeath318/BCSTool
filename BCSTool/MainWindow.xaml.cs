@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -35,6 +36,13 @@ public partial class MainWindow : Window
     private int _lastTerminalColumns = -1;
     private int _lastTerminalRows = -1;
 
+    // BCS Tool Console behaves like a normal live console:
+    // follow the newest line while the user is at the bottom, but preserve
+    // their scroll position if they intentionally scroll upward.
+    private ScrollViewer? _bcsToolConsoleScrollViewer;
+    private bool _bcsToolConsoleAutoFollow = true;
+    private bool _bcsToolConsoleProgrammaticScroll;
+
     // The command TextBox mirrors Bannerlord's native ConPTY line editor.
     // Preserve an explicit Ctrl+A selection across terminal redraws until the
     // user performs an operation that consumes/cancels the selection.
@@ -52,6 +60,11 @@ public partial class MainWindow : Window
     // until Bannerlord catches up to the text we have already sent.
     private string? _pendingCommandText;
     private int _pendingCommandCaretIndex;
+
+    // A mouse click moves the WPF caret before Bannerlord's native ConPTY
+    // editor knows about it. Suppress stale terminal caret snapshots during
+    // that very short handoff so the clicked position cannot snap backward.
+    private bool _commandMouseCaretSyncPending;
 
     public MainWindow(
         MainViewModel viewModel,
@@ -88,6 +101,12 @@ public partial class MainWindow : Window
         // ConPTY prompt rather than WPF's local line editor.
         _viewModel.PropertyChanged +=
             ViewModel_PropertyChanged;
+
+        // Mouse caret placement is local to WPF unless explicitly mirrored to
+        // Bannerlord's native line editor. Defer until WPF finishes processing
+        // the click, then synchronize the native caret absolutely.
+        CommandInput.PreviewMouseLeftButtonUp +=
+            CommandInput_PreviewMouseLeftButtonUp;
     }
 
     // WPF calls this after the window is fully created.
@@ -100,6 +119,8 @@ public partial class MainWindow : Window
         // Measure before InitializeAsync so the first manually-started ConPTY
         // instance already has the correct viewport dimensions.
         ResizeTerminalToViewport();
+
+        InitializeBcsToolConsoleScrolling();
 
         await _viewModel.InitializeAsync();
 
@@ -241,30 +262,160 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Auto-scrolls the BCS Tool Console to its newest message.
+    /// Connects to the ScrollViewer inside the BCS Tool Console ListBox.
     ///
-    /// ScrollIntoView is deferred until after WPF finishes processing the
-    /// ObservableCollection notification. This avoids the ItemsControl
-    /// consistency exception that can occur with synchronous auto-scroll.
+    /// Auto-follow starts enabled. User scrolling upward disables it; reaching
+    /// the bottom again enables it automatically.
+    /// </summary>
+    private void InitializeBcsToolConsoleScrolling()
+    {
+        if (_bcsToolConsoleScrollViewer is not null)
+            return;
+
+        BcsToolConsoleList.ApplyTemplate();
+        BcsToolConsoleList.UpdateLayout();
+
+        _bcsToolConsoleScrollViewer =
+            FindVisualChild<ScrollViewer>(
+                BcsToolConsoleList);
+
+        if (_bcsToolConsoleScrollViewer is null)
+            return;
+
+        _bcsToolConsoleScrollViewer.ScrollChanged +=
+            BcsToolConsoleScrollViewer_ScrollChanged;
+
+        _bcsToolConsoleAutoFollow =
+            true;
+
+        ScrollBcsToolConsoleToEnd();
+    }
+
+
+    /// <summary>
+    /// Tracks manual scrolling.
+    ///
+    /// ScrollChanged also fires when new console lines increase the extent.
+    /// Extent-only changes have VerticalChange == 0, so they must not disable
+    /// auto-follow before the deferred scroll-to-bottom runs.
+    /// </summary>
+    private void BcsToolConsoleScrollViewer_ScrollChanged(
+        object sender,
+        ScrollChangedEventArgs e)
+    {
+        if (_bcsToolConsoleProgrammaticScroll)
+            return;
+
+        if (Math.Abs(e.VerticalChange) < 0.001)
+            return;
+
+        _bcsToolConsoleAutoFollow =
+            IsBcsToolConsoleAtBottom();
+    }
+
+
+    private bool IsBcsToolConsoleAtBottom()
+    {
+        if (_bcsToolConsoleScrollViewer is null)
+            return true;
+
+        // Works for both pixel scrolling and item-based logical scrolling.
+        const double tolerance = 0.5;
+
+        return
+            _bcsToolConsoleScrollViewer.ScrollableHeight <= tolerance ||
+            _bcsToolConsoleScrollViewer.VerticalOffset >=
+                _bcsToolConsoleScrollViewer.ScrollableHeight - tolerance;
+    }
+
+
+    /// <summary>
+    /// Scrolls to the newest BCS Tool message only while auto-follow is active.
     /// </summary>
     private void BcsToolConsoleLines_CollectionChanged(
         object? sender,
         NotifyCollectionChangedEventArgs e)
     {
-        Dispatcher.BeginInvoke(
+        if (!_bcsToolConsoleAutoFollow)
+            return;
+
+        _ = Dispatcher.BeginInvoke(
             DispatcherPriority.Background,
             new Action(() =>
             {
-                if (BcsToolConsoleList.Items.Count == 0)
+                if (!_bcsToolConsoleAutoFollow)
                     return;
 
-                var lastItem =
-                    BcsToolConsoleList.Items[
-                        BcsToolConsoleList.Items.Count - 1];
-
-                BcsToolConsoleList.ScrollIntoView(
-                    lastItem);
+                ScrollBcsToolConsoleToEnd();
             }));
+    }
+
+
+    private void ScrollBcsToolConsoleToEnd()
+    {
+        if (BcsToolConsoleList.Items.Count == 0)
+            return;
+
+        // The inner ScrollViewer is preferable because ScrollToEnd lands at
+        // the actual bottom. Fall back to ScrollIntoView if the ListBox
+        // template has not exposed its ScrollViewer yet.
+        if (_bcsToolConsoleScrollViewer is null)
+        {
+            var lastItem =
+                BcsToolConsoleList.Items[
+                    BcsToolConsoleList.Items.Count - 1];
+
+            BcsToolConsoleList.ScrollIntoView(
+                lastItem);
+
+            return;
+        }
+
+        _bcsToolConsoleProgrammaticScroll =
+            true;
+
+        try
+        {
+            _bcsToolConsoleScrollViewer.ScrollToEnd();
+        }
+        finally
+        {
+            _bcsToolConsoleProgrammaticScroll =
+                false;
+        }
+    }
+
+
+    private static T? FindVisualChild<T>(
+        DependencyObject parent)
+        where T : DependencyObject
+    {
+        var childCount =
+            VisualTreeHelper.GetChildrenCount(
+                parent);
+
+        for (
+            var index = 0;
+            index < childCount;
+            index++)
+        {
+            var child =
+                VisualTreeHelper.GetChild(
+                    parent,
+                    index);
+
+            if (child is T match)
+                return match;
+
+            var nested =
+                FindVisualChild<T>(
+                    child);
+
+            if (nested is not null)
+                return nested;
+        }
+
+        return null;
     }
 
 
@@ -408,6 +559,110 @@ public partial class MainWindow : Window
             MessageBoxImage.Warning);
 
         return false;
+    }
+
+
+    /// <summary>
+    /// Mirrors a mouse-placed WPF caret into Bannerlord's native ConPTY line
+    /// editor.
+    ///
+    /// PreviewMouseLeftButtonUp runs before the TextBox has completely
+    /// finalized its caret/selection state. Queue one dispatcher turn, read the
+    /// final WPF caret, then reposition the native editor from HOME so the next
+    /// typed character is inserted at exactly the same position on both sides.
+    /// </summary>
+    private void CommandInput_PreviewMouseLeftButtonUp(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        if (!_viewModel.IsServerRunning)
+            return;
+
+        _commandMouseCaretSyncPending =
+            true;
+
+        _ = Dispatcher.BeginInvoke(
+            DispatcherPriority.Input,
+            new Action(() =>
+            {
+                _ = SynchronizeMouseCaretToNativeAsync();
+            }));
+    }
+
+
+    private async Task SynchronizeMouseCaretToNativeAsync()
+    {
+        try
+        {
+            if (!_viewModel.IsServerRunning)
+                return;
+
+            // A drag-selection does not need a native selection counterpart.
+            // Existing selection replacement logic already performs absolute
+            // HOME-based editing when the user types/deletes/pastes afterward.
+            if (CommandInput.SelectionLength > 0)
+            {
+                _commandSelectAllActive =
+                    false;
+
+                return;
+            }
+
+            var targetCaret =
+                Math.Clamp(
+                    CommandInput.CaretIndex,
+                    0,
+                    CommandInput.Text.Length);
+
+            _commandSelectAllActive =
+                false;
+
+            // Lock the clicked location locally so any delayed ConPTY echo of
+            // the old caret cannot visually move the textbox backward.
+            SetOptimisticCaret(
+                targetCaret);
+
+            await SendNativeCaretPositionAsync(
+                targetCaret);
+        }
+        finally
+        {
+            _commandMouseCaretSyncPending =
+                false;
+        }
+    }
+
+
+    /// <summary>
+    /// Repositions Bannerlord's native command caret to an absolute character
+    /// index using HOME followed by Right-arrow VT sequences.
+    /// </summary>
+    private async Task SendNativeCaretPositionAsync(
+        int targetCaret)
+    {
+        targetCaret =
+            Math.Clamp(
+                targetCaret,
+                0,
+                CommandInput.Text.Length);
+
+        var mouseNavigationSequence =
+            new StringBuilder();
+
+        mouseNavigationSequence.Append(
+            "\x1B[H");
+
+        for (
+            var index = 0;
+            index < targetCaret;
+            index++)
+        {
+            mouseNavigationSequence.Append(
+                "\x1B[C");
+        }
+
+        await _viewModel.SendTerminalInputAsync(
+            mouseNavigationSequence.ToString());
     }
 
 
@@ -1118,6 +1373,9 @@ public partial class MainWindow : Window
             DispatcherPriority.Input,
             new Action(() =>
             {
+                if (_commandMouseCaretSyncPending)
+                    return;
+
                 // If we already sent newer local input, a ConPTY redraw may
                 // still contain an older prompt or an older cursor position.
                 // Do not let that stale snapshot make the textbox/caret jump
