@@ -74,6 +74,23 @@ public sealed class SaveBackupService
             "BCS Backups");
 
     /// <summary>
+    /// Dedicated crash-safety snapshot directory.
+    ///
+    /// A crash snapshot is copied from the newest complete rotating backup,
+    /// never from the crash-time active save. It is outside normal backup
+    /// rotation so later successful saves cannot rotate it away.
+    /// </summary>
+    public string CrashBackupDirectory =>
+        Path.Combine(
+            BackupDirectory,
+            "Crash Backups");
+
+    // The existing restore UI passes SaveBackupInfo.Generation back to
+    // RestoreBackupAsync. Generation 0 is reserved for the dedicated crash
+    // snapshot; normal rotating generations remain 1..5.
+    public const int CrashBackupGeneration = 0;
+
+    /// <summary>
     /// Creates one new paired rotation after Bannerlord reports a successful
     /// save.
     ///
@@ -284,6 +301,38 @@ public sealed class SaveBackupService
                         pair.JsonPath));
             }
 
+            // The frozen crash snapshot is deliberately listed alongside the
+            // normal generations so the existing Load Backup window can restore
+            // it manually. Generation 0 is the internal selector for this pair.
+            var crashBackup =
+                GetCrashBackupPair(
+                    activePair.BaseName);
+
+            if (BackupPairExists(crashBackup))
+            {
+                var crashSavInfo =
+                    new FileInfo(
+                        crashBackup.SavPath);
+
+                var crashJsonInfo =
+                    new FileInfo(
+                        crashBackup.JsonPath);
+
+                var crashModifiedUtc =
+                    crashSavInfo.LastWriteTimeUtc >= crashJsonInfo.LastWriteTimeUtc
+                        ? crashSavInfo.LastWriteTimeUtc
+                        : crashJsonInfo.LastWriteTimeUtc;
+
+                results.Insert(
+                    0,
+                    new SaveBackupInfo(
+                        CrashBackupGeneration,
+                        $"{activePair.BaseName}.crashbackup",
+                        crashModifiedUtc.ToLocalTime(),
+                        crashBackup.SavPath,
+                        crashBackup.JsonPath));
+            }
+
             return
                 results;
         }
@@ -311,12 +360,15 @@ public sealed class SaveBackupService
         CancellationToken cancellationToken)
     {
         if (
-            generation < MinimumBackupCount ||
-            generation > MaximumBackupCount)
+            generation != CrashBackupGeneration &&
+            (
+                generation < MinimumBackupCount ||
+                generation > MaximumBackupCount
+            ))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(generation),
-                $"Backup generation must be between {MinimumBackupCount} and {MaximumBackupCount}.");
+                $"Backup generation must be {CrashBackupGeneration} for the crash backup, or between {MinimumBackupCount} and {MaximumBackupCount}.");
         }
 
         await _rotationLock.WaitAsync(
@@ -337,124 +389,335 @@ public sealed class SaveBackupService
                 activePair.BaseName);
 
             var selectedBackup =
-                GetBackupPair(
-                    activePair.BaseName,
-                    generation);
+                generation == CrashBackupGeneration
+                    ? GetCrashBackupPair(
+                        activePair.BaseName)
+                    : GetBackupPair(
+                        activePair.BaseName,
+                        generation);
 
             ValidateBackupPairForRestore(
                 selectedBackup);
 
-            Directory.CreateDirectory(
-                GameSavesDirectory);
-
-            var operationId =
-                Guid.NewGuid().ToString("N");
-
-            var stagedPair =
-                new SaveFilePair(
-                    activePair.BaseName,
-                    Path.Combine(
-                        GameSavesDirectory,
-                        $"{activePair.BaseName}.bcs-restore-stage-{operationId}.sav.tmp"),
-                    Path.Combine(
-                        GameSavesDirectory,
-                        $"{activePair.BaseName}.bcs-restore-stage-{operationId}.json.tmp"));
-
-            var rollbackPair =
-                new SaveFilePair(
-                    activePair.BaseName,
-                    Path.Combine(
-                        GameSavesDirectory,
-                        $"{activePair.BaseName}.bcs-restore-rollback-{operationId}.sav.tmp"),
-                    Path.Combine(
-                        GameSavesDirectory,
-                        $"{activePair.BaseName}.bcs-restore-rollback-{operationId}.json.tmp"));
-
-            var activeDestination =
-                new SaveFilePair(
-                    activePair.BaseName,
-                    activePair.SavPath,
-                    activePair.JsonPath);
-
-            var hadActiveSav =
-                File.Exists(
-                    activePair.SavPath);
-
-            var hadActiveJson =
-                File.Exists(
-                    activePair.JsonPath);
-
-            try
-            {
-                // Stage the selected backup first. The active save is not
-                // touched until both backup files have copied successfully.
-                CopyPairPreservingTimestamp(
+            return
+                ApplyBackupToActiveSave(
+                    activePair,
                     selectedBackup,
-                    stagedPair);
-
-                if (hadActiveSav)
-                {
-                    CopyPreservingTimestamp(
-                        activePair.SavPath,
-                        rollbackPair.SavPath);
-                }
-
-                if (hadActiveJson)
-                {
-                    CopyPreservingTimestamp(
-                        activePair.JsonPath,
-                        rollbackPair.JsonPath);
-                }
-
-                try
-                {
-                    CopyPairPreservingTimestamp(
-                        stagedPair,
-                        activeDestination);
-                }
-                catch (Exception restoreException)
-                {
-                    try
-                    {
-                        RestorePreviousActivePair(
-                            activePair,
-                            rollbackPair,
-                            hadActiveSav,
-                            hadActiveJson);
-                    }
-                    catch (Exception rollbackException)
-                    {
-                        throw new IOException(
-                            "The selected backup could not be applied, and BCS Tool was also unable to fully restore the previous active save pair.",
-                            new AggregateException(
-                                restoreException,
-                                rollbackException));
-                    }
-
-                    throw;
-                }
-
-                return
-                    new SaveBackupRestoreResult(
-                        generation,
-                        $"{activePair.BaseName}.backup{generation}",
-                        activePair.SavPath,
-                        activePair.JsonPath);
-            }
-            finally
-            {
-                DeletePair(
-                    stagedPair);
-
-                DeletePair(
-                    rollbackPair);
-            }
+                    generation);
         }
         finally
         {
             _rotationLock.Release();
         }
     }
+
+
+    /// <summary>
+    /// Freezes the newest COMPLETE retained rotating backup as a dedicated
+    /// crash backup without modifying the active campaign save.
+    ///
+    /// Automatic crash recovery continues from the current active save. The
+    /// frozen crash backup is only a manual recovery point in case the active
+    /// save later proves corrupted.
+    ///
+    /// Returns null when no complete retained rotating backup exists.
+    /// </summary>
+    public async Task<CrashBackupSnapshotResult?> CreateCrashBackupFromNewestBackupAsync(
+        CancellationToken cancellationToken)
+    {
+        await _rotationLock.WaitAsync(
+            cancellationToken);
+
+        try
+        {
+            var activePair =
+                ResolveActiveSavePair();
+
+            if (!Directory.Exists(BackupDirectory))
+                return null;
+
+            RemoveIncompleteBackupPairs(
+                activePair.BaseName);
+
+            SaveFilePair? newestCompleteBackup =
+                null;
+
+            var generation =
+                0;
+
+            for (
+                var index = MinimumBackupCount;
+                index <= MaximumBackupCount;
+                index++)
+            {
+                var candidate =
+                    GetBackupPair(
+                        activePair.BaseName,
+                        index);
+
+                if (!BackupPairExists(candidate))
+                    continue;
+
+                newestCompleteBackup =
+                    candidate;
+
+                generation =
+                    index;
+
+                break;
+            }
+
+            if (newestCompleteBackup is null)
+                return null;
+
+            var sourceBackup =
+                newestCompleteBackup.Value;
+
+            ValidateBackupPairForRestore(
+                sourceBackup);
+
+            Directory.CreateDirectory(
+                CrashBackupDirectory);
+
+            var crashBackup =
+                GetCrashBackupPair(
+                    activePair.BaseName);
+
+            ReplaceCrashBackupPair(
+                sourceBackup,
+                crashBackup);
+
+            return
+                new CrashBackupSnapshotResult(
+                    generation,
+                    $"{activePair.BaseName}.backup{generation}",
+                    $"{activePair.BaseName}.crashbackup",
+                    crashBackup.SavPath,
+                    crashBackup.JsonPath);
+        }
+        finally
+        {
+            _rotationLock.Release();
+        }
+    }
+
+
+    /// <summary>
+    /// Replaces the dedicated crash snapshot as one complete pair while
+    /// preserving the previous crash snapshot if the update fails.
+    /// </summary>
+    private void ReplaceCrashBackupPair(
+        SaveFilePair sourceBackup,
+        SaveFilePair crashBackup)
+    {
+        Directory.CreateDirectory(
+            CrashBackupDirectory);
+
+        var operationId =
+            Guid.NewGuid().ToString("N");
+
+        var stagedPair =
+            new SaveFilePair(
+                crashBackup.BaseName,
+                Path.Combine(
+                    CrashBackupDirectory,
+                    $"{crashBackup.BaseName}.crashbackup-stage-{operationId}.sav.tmp"),
+                Path.Combine(
+                    CrashBackupDirectory,
+                    $"{crashBackup.BaseName}.crashbackup-stage-{operationId}.json.tmp"));
+
+        var rollbackPair =
+            new SaveFilePair(
+                crashBackup.BaseName,
+                Path.Combine(
+                    CrashBackupDirectory,
+                    $"{crashBackup.BaseName}.crashbackup-rollback-{operationId}.sav.tmp"),
+                Path.Combine(
+                    CrashBackupDirectory,
+                    $"{crashBackup.BaseName}.crashbackup-rollback-{operationId}.json.tmp"));
+
+        var hadPreviousCrashBackup =
+            BackupPairExists(
+                crashBackup);
+
+        try
+        {
+            CopyPairPreservingTimestamp(
+                sourceBackup,
+                stagedPair);
+
+            if (hadPreviousCrashBackup)
+            {
+                CopyPairPreservingTimestamp(
+                    crashBackup,
+                    rollbackPair);
+            }
+            else
+            {
+                // Remove a stale partial crash pair, if one exists.
+                DeletePair(
+                    crashBackup);
+            }
+
+            try
+            {
+                CopyPairPreservingTimestamp(
+                    stagedPair,
+                    crashBackup);
+            }
+            catch
+            {
+                if (hadPreviousCrashBackup)
+                {
+                    CopyPairPreservingTimestamp(
+                        rollbackPair,
+                        crashBackup);
+                }
+                else
+                {
+                    DeletePair(
+                        crashBackup);
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            DeletePair(
+                stagedPair);
+
+            DeletePair(
+                rollbackPair);
+        }
+    }
+
+    /// <summary>
+    /// Applies one already-validated backup pair to the active save.
+    ///
+    /// The selected backup is staged first. The previous active files are kept
+    /// in temporary rollback copies until BOTH restored files are in place. If
+    /// either active copy fails, the previous active save is restored before
+    /// the exception is propagated.
+    ///
+    /// Caller must hold _rotationLock.
+    /// </summary>
+    private SaveBackupRestoreResult ApplyBackupToActiveSave(
+        ActiveSavePair activePair,
+        SaveFilePair selectedBackup,
+        int generation)
+    {
+        Directory.CreateDirectory(
+            GameSavesDirectory);
+
+        var operationId =
+            Guid.NewGuid().ToString("N");
+
+        var stagedPair =
+            new SaveFilePair(
+                activePair.BaseName,
+                Path.Combine(
+                    GameSavesDirectory,
+                    $"{activePair.BaseName}.bcs-restore-stage-{operationId}.sav.tmp"),
+                Path.Combine(
+                    GameSavesDirectory,
+                    $"{activePair.BaseName}.bcs-restore-stage-{operationId}.json.tmp"));
+
+        var rollbackPair =
+            new SaveFilePair(
+                activePair.BaseName,
+                Path.Combine(
+                    GameSavesDirectory,
+                    $"{activePair.BaseName}.bcs-restore-rollback-{operationId}.sav.tmp"),
+                Path.Combine(
+                    GameSavesDirectory,
+                    $"{activePair.BaseName}.bcs-restore-rollback-{operationId}.json.tmp"));
+
+        var activeDestination =
+            new SaveFilePair(
+                activePair.BaseName,
+                activePair.SavPath,
+                activePair.JsonPath);
+
+        var hadActiveSav =
+            File.Exists(
+                activePair.SavPath);
+
+        var hadActiveJson =
+            File.Exists(
+                activePair.JsonPath);
+
+        try
+        {
+            CopyPairPreservingTimestamp(
+                selectedBackup,
+                stagedPair);
+
+            if (hadActiveSav)
+            {
+                CopyPreservingTimestamp(
+                    activePair.SavPath,
+                    rollbackPair.SavPath);
+            }
+
+            if (hadActiveJson)
+            {
+                CopyPreservingTimestamp(
+                    activePair.JsonPath,
+                    rollbackPair.JsonPath);
+            }
+
+            try
+            {
+                CopyPairPreservingTimestamp(
+                    stagedPair,
+                    activeDestination);
+            }
+            catch (Exception restoreException)
+            {
+                try
+                {
+                    RestorePreviousActivePair(
+                        activePair,
+                        rollbackPair,
+                        hadActiveSav,
+                        hadActiveJson);
+                }
+                catch (Exception rollbackException)
+                {
+                    throw new IOException(
+                        "The selected backup could not be applied, and BCS Tool was also unable to fully restore the previous active save pair.",
+                        new AggregateException(
+                            restoreException,
+                            rollbackException));
+                }
+
+                throw;
+            }
+
+            var backupName =
+                generation == CrashBackupGeneration
+                    ? $"{activePair.BaseName}.crashbackup"
+                    : $"{activePair.BaseName}.backup{generation}";
+
+            return
+                new SaveBackupRestoreResult(
+                    generation,
+                    backupName,
+                    activePair.SavPath,
+                    activePair.JsonPath);
+        }
+        finally
+        {
+            DeletePair(
+                stagedPair);
+
+            DeletePair(
+                rollbackPair);
+        }
+    }
+
+
 
 
     private ActiveSavePair ResolveActiveSavePair()
@@ -513,6 +776,21 @@ public sealed class SaveBackupService
                 Path.Combine(
                     BackupDirectory,
                     backupBaseName + ".json"));
+    }
+
+
+    private SaveFilePair GetCrashBackupPair(
+        string baseName)
+    {
+        return
+            new SaveFilePair(
+                baseName,
+                Path.Combine(
+                    CrashBackupDirectory,
+                    baseName + ".crashbackup.sav"),
+                Path.Combine(
+                    CrashBackupDirectory,
+                    baseName + ".crashbackup.json"));
     }
 
     private void DeleteBeyondRetention(
@@ -788,6 +1066,14 @@ public sealed class SaveBackupService
         string ActiveJsonPath);
 
 
+    public sealed record CrashBackupSnapshotResult(
+        int SourceGeneration,
+        string SourceBackupName,
+        string CrashBackupName,
+        string SavPath,
+        string JsonPath);
+
+
     public sealed record SaveBackupResult(
         string SavPath,
         string JsonPath);
@@ -805,6 +1091,7 @@ public sealed class SaveBackupService
     private readonly record struct SavePairSnapshot(
         FileSnapshot Sav,
         FileSnapshot Json);
+
 
     private readonly record struct FileSnapshot(
         long Length,

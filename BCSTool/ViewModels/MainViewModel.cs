@@ -87,6 +87,24 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private readonly object _saveMarkerLock = new();
     private string _saveMarkerTail = "";
 
+    // BannerlordCoopServer.exe is a launcher/terminal host. A fatal game-server
+    // failure can terminate the hosted server while leaving this launcher
+    // process and ConPTY window alive. In that failure mode Process.Exited does
+    // not fire, so crash recovery also watches the authoritative terminal
+    // markers emitted by the dedicated server/launcher.
+    private const string FatalServerStateMarker = "\"phase\":\"fatal\"";
+    private const string LauncherUnexpectedExitMarker =
+        "[launcher] the server exited unexpectedly";
+
+    private readonly object _crashMarkerLock = new();
+    private string _crashMarkerTail = "";
+
+    // Both terminal markers and Process.Exited can report the same crash.
+    // Latch one recovery request per managed server session so a delayed
+    // Process.Exited event cannot start a second recovery against the new
+    // instance.
+    private int _crashRecoverySignalQueued;
+
     // Bannerlord's native footer exposes a more detailed runtime state, e.g.
     // "SERVING". This value is display-only: the ServerState enum remains the
     // authoritative state machine used by automation.
@@ -581,6 +599,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _serverReady = false;
             _nextRestartAt = null;
             _lastWarningKey = null;
+            ResetCrashOutputDetection();
             ResetPlayerRoster();
 
             // Do not let the previous process's footer status linger while a
@@ -827,6 +846,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _serverReady = false;
         _nextRestartAt = null;
         _lastWarningKey = null;
+        ResetCrashOutputDetection();
         ResetPlayerRoster();
 
         ServerState = ServerState.Starting;
@@ -1517,6 +1537,18 @@ public sealed class MainViewModel : BindableBase, IDisposable
         object? sender,
         string chunk)
     {
+        // The launcher can stay alive after the hosted game server fatally
+        // exits. Detect that condition from raw ConPTY output instead of
+        // relying exclusively on BannerlordCoopServer.exe Process.Exited.
+        if (
+            ConsumeUnexpectedServerFailureMarker(
+                chunk,
+                out var failureReason))
+        {
+            QueueCrashRecovery(
+                failureReason);
+        }
+
         // Save completion is independent from server readiness. Bannerlord's
         // engine emits "Successfully saved" only after the save process has
         // completed, so this is the trigger for BCS Tool's rotation.
@@ -1550,6 +1582,112 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
             RecalculateNextRestart();
         });
+    }
+
+
+    private bool ConsumeUnexpectedServerFailureMarker(
+        string chunk,
+        out string failureReason)
+    {
+        failureReason =
+            "";
+
+        if (string.IsNullOrEmpty(chunk))
+            return false;
+
+        lock (_crashMarkerLock)
+        {
+            var combined =
+                _crashMarkerTail + chunk;
+
+            if (
+                combined.Contains(
+                    FatalServerStateMarker,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _crashMarkerTail =
+                    "";
+
+                failureReason =
+                    "Dedicated server reported a fatal state while the launcher may still be open.";
+
+                return true;
+            }
+
+            if (
+                combined.Contains(
+                    LauncherUnexpectedExitMarker,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _crashMarkerTail =
+                    "";
+
+                failureReason =
+                    "Launcher reported that the hosted server exited unexpectedly.";
+
+                return true;
+            }
+
+            _crashMarkerTail =
+                KeepCrashMarkerTail(
+                    combined);
+
+            return false;
+        }
+    }
+
+
+    private static string KeepCrashMarkerTail(
+        string text)
+    {
+        var maxTailLength =
+            Math.Max(
+                FatalServerStateMarker.Length,
+                LauncherUnexpectedExitMarker.Length) - 1;
+
+        if (text.Length <= maxTailLength)
+            return text;
+
+        return
+            text[^maxTailLength..];
+    }
+
+
+    private void ResetCrashOutputDetection()
+    {
+        lock (_crashMarkerLock)
+        {
+            _crashMarkerTail =
+                "";
+        }
+
+        Interlocked.Exchange(
+            ref _crashRecoverySignalQueued,
+            0);
+    }
+
+
+    private void QueueCrashRecovery(
+        string reason)
+    {
+        if (_applicationClosing)
+            return;
+
+        if (
+            Interlocked.Exchange(
+                ref _crashRecoverySignalQueued,
+                1) != 0)
+        {
+            return;
+        }
+
+        _ = _dispatcher.BeginInvoke(
+            new Action(
+                async () =>
+                {
+                    await HandleUnexpectedExitAsync(
+                        reason);
+                }));
     }
 
 
@@ -2460,28 +2598,34 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
 
-    private void ProcessManager_UnexpectedExit(object? sender, EventArgs e)
+    private void ProcessManager_UnexpectedExit(
+        object? sender,
+        EventArgs e)
     {
-        _dispatcher.BeginInvoke(async () =>
-        {
-            await HandleUnexpectedExitAsync();
-        });
+        QueueCrashRecovery(
+            "Managed BannerlordCoopServer process exited unexpectedly.");
     }
+
 
     /// <summary>
     /// Crash-recovery state machine.
     ///
-    /// A process exit that was not initiated by our own "stop" sequence is
-    /// treated as a crash.
+    /// Recovery can be triggered by either:
+    ///   - the managed launcher process actually exiting, or
+    ///   - terminal output proving that the hosted game server died while the
+    ///     launcher/console itself remained open.
     ///
     /// Recovery:
     ///   mark crashed
     ///   → settle briefly
-    ///   → clean managed child/orphan processes
+    ///   → terminate the stale launcher + managed child tree
+    ///   → wait for the launcher process to actually disappear
+    ///   → freeze the newest retained backup as a manual crash snapshot
     ///   → wait for the server port to become free
-    ///   → restart after the configured delay
+    ///   → restart using the current active save after the configured delay
     /// </summary>
-    private async Task HandleUnexpectedExitAsync()
+    private async Task HandleUnexpectedExitAsync(
+        string reason)
     {
         if (_applicationClosing || _crashRecoveryRunning)
             return;
@@ -2500,31 +2644,122 @@ public sealed class MainViewModel : BindableBase, IDisposable
             NextRestartText = "Crash recovery";
 
             ServerState = ServerState.Crashed;
-            StatusMessage = "Server process exited unexpectedly.";
+            StatusMessage = "Server failure detected.";
 
-            AddToolMessage("Unexpected server exit detected.");
-
-            if (!Settings.AutoRestartOnCrash)
-            {
-                ServerState = ServerState.Stopped;
-                StatusMessage =
-                    "Crash recovery is disabled. Server remains stopped.";
-                return;
-            }
+            AddToolMessage(
+                $"Unexpected server failure detected: {reason}");
 
             await Task.Delay(
                 TimeSpan.FromSeconds(Settings.CrashRecoverySettleSeconds),
                 _lifetimeCts.Token);
 
-            // The root server process exited unexpectedly. Any child process
-            // still living in this managed job now belongs to a broken server
-            // instance, so clean the whole managed process tree before a new
-            // server is allowed to start. This prevents the "console vanished,
-            // but an old process still owns the port" failure mode.
+            // A fatal hosted-server crash can leave BannerlordCoopServer.exe
+            // sitting at a dead launcher prompt. Terminate the entire managed
+            // job even when the launcher process itself has not exited.
             AddToolMessage(
-                "Cleaning any child/orphan processes from the crashed server instance.");
+                "Cleaning the crashed server launcher and managed child processes.");
 
             _processManager.ForceCleanupManagedTree();
+
+            // The old crash path was entered only after Process.Exited, so it
+            // never had to wait for the root launcher. Terminal-marker recovery
+            // can arrive while that launcher is still alive. Starting before
+            // it actually exits can make StartServerAsync silently return or
+            // trip duplicate-process protection.
+            var launcherExitDeadline =
+                DateTime.UtcNow +
+                TimeSpan.FromSeconds(
+                    Math.Max(
+                        5,
+                        Settings.PortReleaseTimeoutSeconds));
+
+            while (
+                _processManager.IsRunning &&
+                !_applicationClosing &&
+                DateTime.UtcNow < launcherExitDeadline)
+            {
+                StatusMessage =
+                    "Waiting for crashed server launcher to close...";
+
+                await Task.Delay(
+                    250,
+                    _lifetimeCts.Token);
+            }
+
+            if (_applicationClosing)
+                return;
+
+            if (_processManager.IsRunning)
+            {
+                ServerState = ServerState.Error;
+                StatusMessage =
+                    "Crashed server launcher could not be terminated. Automatic recovery paused.";
+
+                AddToolMessage(
+                    StatusMessage);
+
+                return;
+            }
+
+            // Freeze the newest complete retained backup as a dedicated
+            // crash recovery point. This NEVER changes the active save:
+            // Bannerlord still restarts from the current configured save pair.
+            //
+            // Capture it even when automatic restart is disabled, because the
+            // manual recovery point is still useful after any detected crash.
+            StatusMessage =
+                "Creating crash backup from newest retained save...";
+
+            try
+            {
+                var crashBackup =
+                    await _saveBackupService.CreateCrashBackupFromNewestBackupAsync(
+                        _lifetimeCts.Token);
+
+                if (crashBackup is null)
+                {
+                    AddToolMessage(
+                        "No complete retained save backup is available for a crash snapshot. " +
+                        "The current active save was left unchanged.");
+                }
+                else
+                {
+                    AddToolMessage(
+                        $"Crash backup created from {crashBackup.SourceBackupName}: " +
+                        $"{Path.GetFileName(crashBackup.SavPath)} + " +
+                        $"{Path.GetFileName(crashBackup.JsonPath)}.");
+
+                    AddToolMessage(
+                        "The active save was not rolled back. If it later proves corrupted, " +
+                        $"stop the server and load {crashBackup.CrashBackupName} manually.");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Snapshot failure must not replace or block the current save.
+                AddToolMessage(
+                    $"Warning: crash backup could not be created: {ex.Message}");
+                AddToolMessage(
+                    "The current active save was left unchanged.");
+            }
+
+            if (!Settings.AutoRestartOnCrash)
+            {
+                _processManager.MarkUnexpectedExitHandlingComplete();
+
+                ServerState = ServerState.Stopped;
+                StatusMessage =
+                    "Crash recovery is disabled. Server remains stopped.";
+
+                AddToolMessage(
+                    "Crashed server process tree was cleaned. Automatic restart is disabled.");
+
+                return;
+            }
 
             while (
                 Settings.ServerPort > 0 &&
@@ -2535,11 +2770,17 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 StatusMessage =
                     $"Waiting for port {Settings.ServerPort} to become free...";
 
-                await Task.Delay(2000, _lifetimeCts.Token);
+                await Task.Delay(
+                    2000,
+                    _lifetimeCts.Token);
             }
 
             if (_applicationClosing)
                 return;
+
+            ServerState = ServerState.Restarting;
+            StatusMessage =
+                $"Restarting after crash in {Settings.RestartDelaySeconds} seconds...";
 
             await Task.Delay(
                 TimeSpan.FromSeconds(Settings.RestartDelaySeconds),
