@@ -621,23 +621,28 @@ public sealed class SettingsService
     {
         var value = key.GetValue(name)?.ToString();
 
-        // Earlier builds stored the inactive access mode as "Disabled".
-        // Preserve that setting while writing the clearer "None" name from
-        // now on.
+        // Migrate both former names for the removed inactive mode to the new
+        // minimum access policy. Every server now starts in Banlist mode when
+        // no valid Banlist/Whitelist preference exists.
         if (
             string.Equals(
                 value,
                 "Disabled",
+                StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(
+                value,
+                "None",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return PlayerAccessMode.None;
+            return PlayerAccessMode.Banlist;
         }
 
         return
             Enum.TryParse<PlayerAccessMode>(
                 value,
                 ignoreCase: true,
-                out var parsed)
+                out var parsed) &&
+            Enum.IsDefined(parsed)
                 ? parsed
                 : defaultValue;
     }

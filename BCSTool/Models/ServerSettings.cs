@@ -53,7 +53,7 @@ public sealed class ServerSettings
 
     // Player access control is enforced by SteamID64 after BCS Tool resolves
     // the current session's character -> HeroId -> ControllerId chain.
-    public PlayerAccessMode PlayerAccessMode { get; set; } = PlayerAccessMode.None;
+    public PlayerAccessMode PlayerAccessMode { get; set; } = PlayerAccessMode.Banlist;
 
     public string BroadcastSaving { get; set; } = "Saving Files...";
     public string BroadcastRestarting { get; set; } = "Restarting...";

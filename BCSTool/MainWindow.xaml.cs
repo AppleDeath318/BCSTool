@@ -698,6 +698,20 @@ public partial class MainWindow : Window
     }
 
 
+    private void KnownPlayers_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var window =
+            new KnownPlayersWindow(_viewModel)
+            {
+                Owner = this
+            };
+
+        window.ShowDialog();
+    }
+
+
     /// <summary>
     /// Opens the Bannerlord Coop mod configuration editor.
     /// </summary>

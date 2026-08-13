@@ -1652,9 +1652,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
                 PlayerLines.Add(
                     PlayerInformationLine.Detail(
-                        Settings.PlayerAccessMode == PlayerAccessMode.None
-                            ? "    Access: None"
-                            : "    Access: Pending identity"));
+                        "    Access: Pending identity"));
             }
         }
     }
@@ -1806,7 +1804,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     ? "Whitelisted"
                     : "Not whitelisted",
 
-            _ => "None"
+            _ => throw new InvalidOperationException(
+                $"Unsupported player access mode: {Settings.PlayerAccessMode}.")
         };
     }
 
@@ -2180,7 +2179,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private async Task EvaluatePlayerAccessAsync()
     {
         if (_applicationClosing ||
-            Settings.PlayerAccessMode == PlayerAccessMode.None ||
             !_processManager.IsRunning)
         {
             return;
@@ -2228,7 +2226,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     PlayerAccessMode.Whitelist =>
                         !_whitelistedSteamIds.Contains(identity.SteamId),
 
-                    _ => false
+                    _ => throw new InvalidOperationException(
+                        $"Unsupported player access mode: {Settings.PlayerAccessMode}.")
                 };
 
                 if (!shouldKick)

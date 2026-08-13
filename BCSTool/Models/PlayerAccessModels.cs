@@ -2,9 +2,9 @@ namespace BCSTool.Models;
 
 public enum PlayerAccessMode
 {
-    None,
-    Banlist,
-    Whitelist
+    // Preserve the values used before the legacy None mode was removed.
+    Banlist = 1,
+    Whitelist = 2
 }
 
 public sealed class PlayerAccessEntry

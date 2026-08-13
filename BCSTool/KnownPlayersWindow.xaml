@@ -1,0 +1,186 @@
+<Window x:Class="BCSTool.KnownPlayersWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Player List"
+        Width="1050"
+        Height="620"
+        MinWidth="900"
+        MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        Loaded="Window_Loaded">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="#FFF7E6"
+                BorderBrush="#E0B45A"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="9"
+                Margin="0,0,0,10">
+            <TextBlock TextWrapping="Wrap">
+                Shows identities learned in player-identities.json. Search by character name or Steam ID, and right-click a row to copy its SteamID. List actions are saved immediately.
+            </TextBlock>
+        </Border>
+
+        <Grid Grid.Row="1"
+              Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       Text="Search:"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"
+                       Margin="0,0,8,0"/>
+
+            <TextBox x:Name="SearchTextBox"
+                     Grid.Column="1"
+                     MinHeight="30"
+                     VerticalContentAlignment="Center"
+                     TextChanged="SearchTextBox_TextChanged"/>
+        </Grid>
+
+        <DataGrid x:Name="PlayerGrid"
+                  Grid.Row="2"
+                  ItemsSource="{Binding Players}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  IsReadOnly="True"
+                  SelectionMode="Single"
+                  SelectionUnit="FullRow"
+                  GridLinesVisibility="Horizontal"
+                  HeadersVisibility="Column"
+                  PreviewMouseRightButtonDown="PlayerGrid_PreviewMouseRightButtonDown"
+                  ContextMenuOpening="PlayerGrid_ContextMenuOpening">
+            <DataGrid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Copy SteamID"
+                              Click="CopySelectedSteamId_Click"/>
+                </ContextMenu>
+            </DataGrid.ContextMenu>
+
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Steam ID"
+                                    Binding="{Binding SteamId}"
+                                    Width="175">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="VerticalAlignment"
+                                    Value="Center"/>
+                            <Setter Property="Margin"
+                                    Value="8,0,4,0"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+
+                <DataGridTextColumn Header="Character name"
+                                    Binding="{Binding CharacterNameDisplay}"
+                                    Width="*"
+                                    MinWidth="170">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="VerticalAlignment"
+                                    Value="Center"/>
+                            <Setter Property="Margin"
+                                    Value="8,0,4,0"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+
+                <DataGridTemplateColumn Header="Ban"
+                                        Width="105">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding BanButtonText}"
+                                    IsEnabled="{Binding CanBan}"
+                                    Click="Ban_Click"
+                                    Margin="4,2"
+                                    Padding="7,3"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Unban"
+                                        Width="115">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="Unban"
+                                    IsEnabled="{Binding CanUnban}"
+                                    Click="Unban_Click"
+                                    Margin="4,2"
+                                    Padding="7,3"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Whitelist"
+                                        Width="155">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding AddWhitelistButtonText}"
+                                    IsEnabled="{Binding CanAddToWhitelist}"
+                                    Click="AddToWhitelist_Click"
+                                    Margin="4,2"
+                                    Padding="7,3"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Unwhitelist"
+                                        Width="155">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="Unwhitelist"
+                                    IsEnabled="{Binding CanUnwhitelist}"
+                                    Click="Unwhitelist_Click"
+                                    Margin="4,2"
+                                    Padding="7,3"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <Grid Grid.Row="3"
+              Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="95"/>
+                <ColumnDefinition Width="95"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock x:Name="PlayerCountText"
+                       Grid.Column="0"
+                       VerticalAlignment="Center"
+                       FontWeight="SemiBold"
+                       Margin="0,0,12,0"/>
+
+            <TextBlock x:Name="StatusText"
+                       Grid.Column="1"
+                       VerticalAlignment="Center"
+                       Foreground="Gray"
+                       TextTrimming="CharacterEllipsis"/>
+
+            <Button x:Name="RefreshButton"
+                    Grid.Column="2"
+                    Content="Refresh"
+                    Margin="6,0,0,0"
+                    Click="Refresh_Click"/>
+
+            <Button Grid.Column="3"
+                    Content="Close"
+                    Margin="6,0,0,0"
+                    Click="Close_Click"/>
+        </Grid>
+    </Grid>
+</Window>

@@ -5,7 +5,7 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
 ``
-**Current release:** v0.3.1
+**Current release:** v0.3.1.1
 ``
 
 ## Features
@@ -73,10 +73,10 @@ BCS Tool preserves the existing JSONC structure and comments when saving support
 > testing. Monitor the BCS Tool Console while using it and verify its behavior
 > with trusted players.
 
-Player access control uses **SteamID64 for authentication**. Select a mode 
-from the **Access Control (Beta)** section in the main window:
+Player access control uses **SteamID64 for authentication**. Banlist is the
+default mode. Select Banlist or Whitelist from the **Access Control (Beta)**
+section in the main window:
 
-* **None:** Disables automatic list-based access enforcement.
 * **Banlist:** Players whose resolved SteamID64 appears in the banlist are kicked.
 * **Whitelist:** Players whose resolved SteamID64 does not appear in the whitelist are kicked.
 
@@ -86,6 +86,12 @@ the server, and receiving the server log and identity events.
 Use **Banlist/Whitelist Panel** to add or remove 17-digit SteamID64 entries and
 optional notes. The panel automatically opens the tab for the currently active
 mode. Press **Apply** or **Apply & Close** to save manual list changes.
+
+Use **Player List** to view every character name and Steam ID learned in
+`player-identities.json`. Search by character name or Steam ID, and right-click
+any row to copy its SteamID. Each player can be banned, unbanned, whitelisted,
+or unwhitelisted. List actions save immediately; buttons are disabled when the
+requested list state is already active.
 
 A player whose identity is still unresolved, including someone creating a 
 character, remains **Pending** until the current server session confirms the 
@@ -246,7 +252,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.3.1
+0.3.1.1
 ```
 
 The application version is defined in:
@@ -258,7 +264,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.3.1</Version>
+<Version>0.3.1.1</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -266,7 +272,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.3.1
+v0.3.1.1
 ```
 
 ## Development Status
