@@ -8,13 +8,13 @@ using BCSTool.ViewModels;
 namespace BCSTool;
 
 /// <summary>
-/// Manual selector for restoring one complete .sav/.json backup generation.
+/// Manual selector for restoring one native .backupN.sav/.backupN.json pair.
 /// </summary>
 public partial class BackupRestoreWindow : Window
 {
     private readonly MainViewModel _viewModel;
 
-    private readonly ObservableCollection<SaveBackupService.SaveBackupInfo> _backups =
+    private readonly ObservableCollection<NativeSaveBackupService.NativeBackupInfo> _backups =
         new();
 
 
@@ -41,7 +41,7 @@ public partial class BackupRestoreWindow : Window
         try
         {
             var backups =
-                await _viewModel.GetSaveBackupsAsync();
+                await _viewModel.GetNativeSaveBackupsAsync();
 
             _backups.Clear();
 
@@ -73,7 +73,7 @@ public partial class BackupRestoreWindow : Window
         SelectionChangedEventArgs e)
     {
         ApplyButton.IsEnabled =
-            BackupListView.SelectedItem is SaveBackupService.SaveBackupInfo;
+            BackupListView.SelectedItem is NativeSaveBackupService.NativeBackupInfo;
     }
 
 
@@ -83,7 +83,7 @@ public partial class BackupRestoreWindow : Window
     {
         if (
             BackupListView.SelectedItem
-                is not SaveBackupService.SaveBackupInfo selectedBackup)
+                is not NativeSaveBackupService.NativeBackupInfo selectedBackup)
         {
             return;
         }
@@ -121,7 +121,7 @@ public partial class BackupRestoreWindow : Window
         try
         {
             var result =
-                await _viewModel.RestoreSaveBackupAsync(
+                await _viewModel.RestoreNativeSaveBackupAsync(
                     selectedBackup.Generation);
 
             MessageBox.Show(
@@ -147,7 +147,7 @@ public partial class BackupRestoreWindow : Window
                 MessageBoxImage.Error);
 
             ApplyButton.IsEnabled =
-                BackupListView.SelectedItem is SaveBackupService.SaveBackupInfo;
+                BackupListView.SelectedItem is NativeSaveBackupService.NativeBackupInfo;
         }
     }
 

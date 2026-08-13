@@ -6,6 +6,12 @@ using System.Threading.Tasks;
 
 namespace BCSTool.Services;
 
+// LEGACY BCS SAVE BACKUPS (disabled): this entire custom rotating-backup and
+// crash-backup implementation was superseded by Bannerlord Coop's native
+// per-world backups. It is excluded from compilation and retained only as
+// historical source reference.
+#if false
+
 /// <summary>
 /// Maintains a bounded rotating history of Bannerlord Coop campaign saves.
 ///
@@ -1146,3 +1152,4 @@ public sealed class SaveBackupService
         long Length,
         DateTime LastWriteTimeUtc);
 }
+#endif

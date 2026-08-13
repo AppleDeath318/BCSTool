@@ -2,7 +2,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -67,14 +66,8 @@ public partial class ServerConfigurationWindow : Window
             SetPasswordControls(
                 _config.Password);
 
-            SaveBackupsEnabledCheckBox.IsChecked =
-                _viewModel.Settings.SaveBackupsEnabled;
-
-            SaveBackupCountComboBox.ItemsSource =
-                _viewModel.SaveBackupCountOptions;
-
-            SaveBackupCountComboBox.SelectedItem =
-                _viewModel.Settings.SaveBackupCount;
+            // LEGACY BCS SAVE BACKUPS (disabled): the custom rotation controls
+            // were removed after Bannerlord Coop added native per-world backups.
 
             _savedConfigurationSnapshot =
                 CreateConfigurationSnapshot();
@@ -95,12 +88,9 @@ public partial class ServerConfigurationWindow : Window
 
 
     /// <summary>
-    /// Saves Bannerlord's server configuration and BCS Tool's backup-rotation
-    /// settings. The two setting groups intentionally use different storage:
-    /// server-config.json for Bannerlord and the BCS Tool Registry key for the
-    /// backup feature.
+    /// Saves Bannerlord's server configuration to server-config.json.
     /// </summary>
-    private async Task<bool> SaveConfigurationAsync()
+    private bool SaveConfiguration()
     {
         if (HasValidationErrors(this))
         {
@@ -119,14 +109,8 @@ public partial class ServerConfigurationWindow : Window
             _configService.SaveServerConfig(
                 _config);
 
-            var backupCount =
-                SaveBackupCountComboBox.SelectedItem is int selectedCount
-                    ? selectedCount
-                    : _viewModel.Settings.SaveBackupCount;
-
-            await _viewModel.UpdateSaveBackupSettingsAsync(
-                SaveBackupsEnabledCheckBox.IsChecked == true,
-                backupCount);
+            // LEGACY BCS SAVE BACKUPS (disabled): custom backup settings are
+            // no longer written because native backup rotation owns them.
 
             _savedConfigurationSnapshot =
                 CreateConfigurationSnapshot();
@@ -152,11 +136,6 @@ public partial class ServerConfigurationWindow : Window
 
     private ServerConfigurationSnapshot CreateConfigurationSnapshot()
     {
-        var backupCount =
-            SaveBackupCountComboBox.SelectedItem is int selectedCount
-                ? selectedCount
-                : _viewModel.Settings.SaveBackupCount;
-
         return
             new ServerConfigurationSnapshot(
                 _config.SaveName,
@@ -166,9 +145,7 @@ public partial class ServerConfigurationWindow : Window
                 _config.Steam,
                 _config.TraceTick,
                 _config.TracePublish,
-                _config.TraceBandits,
-                SaveBackupsEnabledCheckBox.IsChecked == true,
-                backupCount);
+                _config.TraceBandits);
     }
 
 
@@ -215,19 +192,19 @@ public partial class ServerConfigurationWindow : Window
     }
 
 
-    private async void Save_Click(
+    private void Save_Click(
         object sender,
         RoutedEventArgs e)
     {
-        await SaveConfigurationAsync();
+        SaveConfiguration();
     }
 
 
-    private async void SaveAndClose_Click(
+    private void SaveAndClose_Click(
         object sender,
         RoutedEventArgs e)
     {
-        if (await SaveConfigurationAsync())
+        if (SaveConfiguration())
         {
             Close();
         }
@@ -305,15 +282,9 @@ public partial class ServerConfigurationWindow : Window
     }
 
 
-    /// <summary>
-    /// Opens BCS Tool's rotating-save backup directory:
-    ///
-    /// Documents\Mount and Blade II Bannerlord\CoopData\DedicatedServer\
-    /// Game Saves\BCS Backups
-    ///
-    /// The directory is intentionally not created by this button. It appears
-    /// only after SaveBackupService successfully creates the first backup.
-    /// </summary>
+    // LEGACY BCS SAVE BACKUPS (disabled): the old BCS Backups folder button
+    // is retained only as historical code and is not compiled or shown.
+#if false
     private void OpenBackupFolder_Click(
         object sender,
         RoutedEventArgs e)
@@ -368,10 +339,11 @@ public partial class ServerConfigurationWindow : Window
                 MessageBoxImage.Error);
         }
     }
+#endif
 
 
     /// <summary>
-    /// Opens the manual backup selector only when the managed Bannerlord
+    /// Opens Bannerlord Coop's native backup selector only when the managed
     /// server is completely stopped.
     /// </summary>
     private void LoadBackup_Click(
@@ -517,9 +489,7 @@ public partial class ServerConfigurationWindow : Window
         bool Steam,
         bool TraceTick,
         bool TracePublish,
-        bool TraceBandits,
-        bool SaveBackupsEnabled,
-        int SaveBackupCount);
+        bool TraceBandits);
 
 
     private static bool HasValidationErrors(

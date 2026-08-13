@@ -9,7 +9,7 @@ namespace BCSTool.Services;
 /// Groups the managed Bannerlord server process tree inside a Windows Job
 /// Object.
 ///
-/// The important safety feature in v1.1.1 is:
+/// The important safety feature is:
 ///
 ///     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 ///

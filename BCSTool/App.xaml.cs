@@ -56,8 +56,8 @@ public partial class App : Application
         // Create the application's services.
         //
         // We are doing simple manual dependency injection here rather than
-        // bringing in a third-party DI framework. That keeps v1.0 easy to
-        // understand and avoids extra NuGet dependencies.
+        // bringing in a third-party DI framework. That keeps the application
+        // easy to understand and avoids extra NuGet dependencies.
         var settingsService = new SettingsService();
         var logService = new LogService();
         var portMonitor = new PortMonitor();
@@ -88,7 +88,8 @@ public partial class App : Application
         var serverLogMonitor = new ServerLogMonitor(
             logService,
             coopConfigService);
-        var saveBackupService = new SaveBackupService(coopConfigService);
+        var nativeSaveBackupService = new NativeSaveBackupService(
+            coopConfigService);
         var playerAccessService = new PlayerAccessService(
             logService,
             coopConfigService);
@@ -103,7 +104,7 @@ public partial class App : Application
             playerRosterTracker,
             serverLogMonitor,
             serverExecutableLocator,
-            saveBackupService,
+            nativeSaveBackupService,
             playerAccessService);
 
         var window = new MainWindow(

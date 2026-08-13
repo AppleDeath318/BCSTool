@@ -55,7 +55,7 @@
                        FontWeight="SemiBold"/>
 
             <TextBlock Grid.Row="1"
-                       Text="Select a backup generation to replace the current .sav and companion .json files. The server must remain fully stopped while the backup is applied."
+                       Text="Select a Bannerlord Coop native backup from the active save's directory. The paired .sav and .json files will replace the current save while the server is fully stopped."
                        TextWrapping="Wrap"
                        Margin="0,4,0,12"/>
 
@@ -78,7 +78,7 @@
 
             <TextBlock x:Name="EmptyBackupsText"
                        Grid.Row="3"
-                       Text="No complete backup save pairs were found for the currently configured save."
+                       Text="No complete native .backupN.sav/.backupN.json pairs were found for the currently configured save."
                        TextWrapping="Wrap"
                        Foreground="Gray"
                        Margin="0,8,0,0"

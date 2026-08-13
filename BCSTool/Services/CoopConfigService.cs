@@ -860,7 +860,7 @@ public sealed class CoopConfigService
 
 
     // ========================================================
-    // JSONC HELPERS — v1.8.1 SIMPLE WRITER (NO REGEX)
+    // JSONC HELPERS — SIMPLE WRITER (NO REGEX)
     // ========================================================
 
     private static string ReadRequiredFile(

@@ -5,7 +5,7 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
 ``
-**Current release:** v0.2.3
+**Current release:** v0.3.0
 ``
 
 ## Features
@@ -15,13 +15,10 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Restart warning message broadcast
 * Automatic crash recovery
 * Built-in live server log console with local command input
-* Adjustable Server Console / Players / BCS Tool Console workspace
-* Color-coded BCS Tool status and diagnostic messages
-* Player access control with SteamID64 banlist and whitelist modes
+* SteamID64 banlist and whitelist access control (Beta)
 * Automatic server executable detection
 * Server configuration modification
 * Mod configuration modification
-* Save backups
 * Backup restore
 
 ## Requirements
@@ -49,7 +46,6 @@ The files automatically provided by GitHub as `Source code (zip)` and `Source co
 2. BCS Tool will try to locate `BannerlordCoopServer.exe` automatically.
 3. If the executable is not detected, use **Browse** to select it manually.
 4. Press **Start** to launch the server.
-5. Configure save-backup rotation under **Server Configuration → Save Backups** if desired.
 
 ## Configuration Editors
 
@@ -71,9 +67,54 @@ If either configuration file does not exist yet, start the server once so Banner
 
 BCS Tool preserves the existing JSONC structure and comments when saving supported settings, and creates a `.bak` backup before overwriting a configuration file.
 
-## Save Backups
+## Player Access Control (Beta)
 
-BCS Tool can maintain a rotating history of Bannerlord Coop campaign saves.
+> **Beta warning:** The banlist and whitelist feature has not received extensive
+> testing. Monitor the BCS Tool Console while using it and verify its behavior
+> with trusted players.
+
+Player access control uses **SteamID64 for authentication**. Select a mode 
+from the **Access Control (Beta)** section in the main window:
+
+* **None:** Disables automatic list-based access enforcement.
+* **Banlist:** Players whose resolved SteamID64 appears in the banlist are kicked.
+* **Whitelist:** Players whose resolved SteamID64 does not appear in the whitelist are kicked.
+
+Enforcement is performed by BCS Tool and requires it to be running, managing
+the server, and receiving the server log and identity events.
+
+Use **Banlist/Whitelist Panel** to add or remove 17-digit SteamID64 entries and
+optional notes. The panel automatically opens the tab for the currently active
+mode. Press **Apply** or **Apply & Close** to save manual list changes.
+
+A player whose identity is still unresolved, including someone creating a 
+character, remains **Pending** until the current server session confirms the 
+character, Hero ID, and SteamID64 mapping. Denied players and the rule that 
+caused each kick are recorded in the BCS Tool Console.
+
+The Player Information panel also provides right-click actions:
+
+* Right-click a character-name row to send a **Kick** command or add that resolved player to the banlist.
+* Right-click a SteamID row to copy that SteamID64.
+
+The access lists and learned identity data are stored under:
+
+```text
+%LOCALAPPDATA%\BCS Tool
+```
+
+The main files are `banlist.json`, `whitelist.json`, and
+`player-identities.json`.
+
+## Native Save Backups
+
+Bannerlord Coop maintains its own per-world backup history beside the active
+campaign save. BCS Tool does not create, rotate, or delete these backups.
+
+The previous **Save Backups** section, retention setting, and **Open Backup
+Folder** button have been removed. Existing files under `Game Saves\BCS
+Backups` are legacy files from older BCS Tool versions and are no longer read,
+written, or deleted by the application.
 
 A Bannerlord Coop save consists of two companion files with the same base name:
 
@@ -82,17 +123,7 @@ saveauto1.sav
 saveauto1.json
 ```
 
-BCS Tool treats these files as a single save pair. Backup rotation and manual restore always operate on both files together.
-
-### Backup rotation
-
-Backup rotation is configured under **Server Configuration → Save Backups**.
-
-The number of retained backup generations can be set from **1 to 5**.
-
-After the server reports that a save completed successfully, BCS Tool waits for both save files to become stable before creating the next backup generation.
-
-For a save named `saveauto1`, the rotating backups are named:
+Bannerlord Coop's native generations for a save named `saveauto1` are named:
 
 ```text
 saveauto1.backup1.sav
@@ -100,22 +131,9 @@ saveauto1.backup1.json
 
 saveauto1.backup2.sav
 saveauto1.backup2.json
-
-...
-
-saveauto1.backup5.sav
-saveauto1.backup5.json
 ```
 
-`backup1` is the newest retained backup. Higher numbers are progressively older.
-
-For example, with three backups retained, a new backup rotates the existing history as follows:
-
-```text
-backup2 -> backup3
-backup1 -> backup2
-current save -> backup1
-```
+`backup1` is the newest native backup. Higher numbers are progressively older.
 
 The active save remains unchanged in name:
 
@@ -124,19 +142,17 @@ saveauto1.sav
 saveauto1.json
 ```
 
-Backup files are stored under:
+Both the active save and native backup pairs are stored under:
 
 ```text
-Documents\Mount and Blade II Bannerlord\CoopData\DedicatedServer\Game Saves\BCS Backups
+Documents\Mount and Blade II Bannerlord\CoopData\DedicatedServer\Game Saves
 ```
-
-The **Open Backup Folder** button opens this directory. The folder is created only after BCS Tool successfully creates its first backup.
-
-Disabling backup rotation stops new backups from being created but does not delete existing backups.
 
 ### Manual backup restore
 
-The **Load Backup** button opens a list of available complete backup generations and their modification dates.
+The **Load Backup** button under **Server Configuration → World / Saving**
+opens the available complete native backup generations and their modification
+dates. Incomplete generations are not offered.
 
 A backup can only be loaded while the managed server is **fully stopped**. If the server is starting, running, saving, stopping, restarting, or otherwise not in the normal `Stopped` state, BCS Tool will require the server to be stopped before continuing.
 
@@ -145,21 +161,22 @@ Selecting a backup and pressing **Apply** replaces the current save pair.
 For example, loading:
 
 ```text
-saveauto1.backup3
+saveauto1.backup2
 ```
 
 restores:
 
 ```text
-saveauto1.backup3.sav  -> saveauto1.sav
-saveauto1.backup3.json -> saveauto1.json
+saveauto1.backup2.sav  -> saveauto1.sav
+saveauto1.backup2.json -> saveauto1.json
 ```
 
-The backup files themselves remain in the backup directory after being loaded.
+The native backup files themselves remain unchanged after being loaded.
 
 BCS Tool stages the selected pair and temporarily preserves the current active pair while applying the restore to reduce the chance of an ordinary file-copy failure leaving the `.sav` and `.json` files mismatched.
 
-> **Note:** The current system provides rotating backups and manual restore. Automatic save-corruption detection and automatic rollback are not currently implemented.
+> **Note:** Bannerlord Coop owns backup generation. BCS Tool provides only the
+> manual loader and does not perform automatic corruption detection or rollback.
 
 ## Automatic Restarts
 
@@ -172,7 +189,7 @@ Before a scheduled restart, it can:
 3. Wait for shutdown
 4. Restart the server
 
-Crash recovery can also restart the server automatically if the managed process exits unexpectedly.
+Crash recovery can also restart the server automatically if the managed process exits unexpectedly. It does not create a separate BCS Tool crash backup; Bannerlord Coop's native backups remain available for manual loading.
 
 Scheduled automation becomes active only after the dedicated server's structured runtime state reports `SERVING`.
 
@@ -229,7 +246,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.2.3
+0.3.0
 ```
 
 The application version is defined in:
@@ -241,7 +258,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.2.3</Version>
+<Version>0.3.0</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -249,7 +266,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.2.3
+v0.3.0
 ```
 
 ## Development Status
@@ -273,4 +290,3 @@ See [`LICENSE`](LICENSE) for the full license text.
 BCS Tool is an independent community utility and is not an official TaleWorlds product.
 
 Mount \& Blade II: Bannerlord and related names belong to their respective owners.
-
