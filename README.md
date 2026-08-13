@@ -165,10 +165,9 @@ BCS Tool can periodically restart the server at a configured interval and minute
 Before a scheduled restart, it can:
 
 1. Broadcast countdown warnings
-2. Save the campaign
-3. Stop the server gracefully
-4. Wait for shutdown
-5. Restart the server
+2. Stop the server gracefully (the native `stop` command saves the campaign before exit)
+3. Wait for shutdown
+4. Restart the server
 
 Crash recovery can also restart the server automatically if the managed process exits unexpectedly.
 

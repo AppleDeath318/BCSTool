@@ -45,7 +45,7 @@ namespace BCSTool.ViewModels;
 ///     WPF bindings refresh the UI
 ///
 /// It also contains the high-level server lifecycle orchestration:
-/// start → wait for ready → warn → save → stop → restart.
+/// start → wait for ready → warn → stop (native save) → restart.
 /// </summary>
 public sealed class MainViewModel : BindableBase, IDisposable
 {
@@ -653,6 +653,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
             }
 
             _serverReady = false;
+
+            // The previous session is fully stopped at this point. Clear its
+            // roster immediately so stale players are not shown during the
+            // restart delay / port-release window.
+            ResetPlayerRoster();
 
             ServerPidText = "-";
             UptimeText = "-";
@@ -1933,21 +1938,30 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
 
-    private async Task CreateSaveBackupAfterSuccessfulSaveAsync()
+    private async Task CreateSaveBackupAfterSuccessfulSaveAsync(
+        bool allowDuringApplicationClosing = false)
     {
         if (
             !Settings.SaveBackupsEnabled ||
-            _applicationClosing)
+            (_applicationClosing && !allowDuringApplicationClosing))
         {
             return;
         }
+
+        // During normal operation backups belong to the application lifetime.
+        // During final application shutdown, however, we explicitly await the
+        // native stop-save backup before Dispose cancels _lifetimeCts.
+        var cancellationToken =
+            allowDuringApplicationClosing
+                ? CancellationToken.None
+                : _lifetimeCts.Token;
 
         try
         {
             var backup =
                 await _saveBackupService.CreateBackupAsync(
                     Settings.SaveBackupCount,
-                    _lifetimeCts.Token);
+                    cancellationToken);
 
             if (backup is not null)
             {
@@ -2409,7 +2423,22 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         try
         {
-            return await StopServerWhileLockedAsync();
+            var stopped =
+                await StopServerWhileLockedAsync();
+
+            if (!stopped)
+                return false;
+
+            // _applicationClosing intentionally suppresses the ordinary
+            // fire-and-forget log-triggered backup. Because native `stop`
+            // saves before the process exits, take and await that final
+            // snapshot explicitly before the application is allowed to close.
+            // SaveBackupService also deduplicates against backup #1, so this
+            // remains safe even if a save-completion event was already seen.
+            await CreateSaveBackupAfterSuccessfulSaveAsync(
+                allowDuringApplicationClosing: true);
+
+            return true;
         }
         catch (OperationCanceledException)
         {
