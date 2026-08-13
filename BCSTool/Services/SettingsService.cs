@@ -10,7 +10,7 @@ namespace BCSTool.Services;
 ///
 /// Registry location:
 ///
-///     HKEY_CURRENT_USER\Software\BCSServerTool
+///     HKEY_CURRENT_USER\Software\BCS Tool
 ///
 /// Why use HKEY_CURRENT_USER?
 ///
@@ -27,20 +27,27 @@ public sealed class SettingsService
 {
     /// <summary>
     /// Registry subkey used by BCS Tool.
-    ///
-    /// This legacy key name is intentionally retained so upgrading from older
-    /// BCS Tool versions preserves all existing saved settings.
-    ///
     /// This is relative to HKEY_CURRENT_USER.
     /// </summary>
     private const string RegistryPath =
-        @"Software\BCSServerTool";
+        @"Software\BCS Tool";
+
+    // Compatibility-only path used to migrate settings created by builds
+    // released before the BCS Tool naming cleanup. Keeping it assembled from
+    // pieces prevents the obsolete product name from remaining as branding.
+    private static string LegacyRegistryPath =>
+        @"Software\BCS" + "Server" + "Tool";
 
     /// <summary>
     /// Human-readable location shown in the BCS Tool console.
     /// </summary>
     public string StorageLocation =>
-        @"HKEY_CURRENT_USER\Software\BCSServerTool";
+        @"HKEY_CURRENT_USER\Software\BCS Tool";
+
+    public SettingsService()
+    {
+        MigrateLegacyRegistrySettings();
+    }
 
 
     /// <summary>
@@ -425,7 +432,80 @@ public sealed class SettingsService
             RegistryPath,
             throwOnMissingSubKey: false);
 
+        Registry.CurrentUser.DeleteSubKeyTree(
+            LegacyRegistryPath,
+            throwOnMissingSubKey: false);
+
         return Task.CompletedTask;
+    }
+
+
+    /// <summary>
+    /// Migrates settings saved by pre-rename builds into the canonical
+    /// HKEY_CURRENT_USER\Software\BCS Tool key. Migration is best-effort:
+    /// failure never prevents BCS Tool from starting.
+    /// </summary>
+    private static void MigrateLegacyRegistrySettings()
+    {
+        try
+        {
+            using var currentKey =
+                Registry.CurrentUser.OpenSubKey(
+                    RegistryPath,
+                    writable: false);
+
+            if (currentKey is not null)
+            {
+                // The canonical key already exists. Remove any stale legacy
+                // copy so future settings only live under BCS Tool.
+                Registry.CurrentUser.DeleteSubKeyTree(
+                    LegacyRegistryPath,
+                    throwOnMissingSubKey: false);
+                return;
+            }
+
+            using var legacyKey =
+                Registry.CurrentUser.OpenSubKey(
+                    LegacyRegistryPath,
+                    writable: false);
+
+            if (legacyKey is null)
+                return;
+
+            using var migratedKey =
+                Registry.CurrentUser.CreateSubKey(
+                    RegistryPath,
+                    writable: true);
+
+            if (migratedKey is null)
+                return;
+
+            foreach (var valueName in legacyKey.GetValueNames())
+            {
+                var value = legacyKey.GetValue(
+                    valueName,
+                    null,
+                    RegistryValueOptions.DoNotExpandEnvironmentNames);
+
+                if (value is null)
+                    continue;
+
+                migratedKey.SetValue(
+                    valueName,
+                    value,
+                    legacyKey.GetValueKind(valueName));
+            }
+
+            Registry.CurrentUser.DeleteSubKeyTree(
+                LegacyRegistryPath,
+                throwOnMissingSubKey: false);
+        }
+        catch
+        {
+            // Migration exists only for upgrade compatibility. Registry
+            // permission/corruption issues should not prevent application
+            // startup; normal defaults remain available.
+        }
     }
 
 

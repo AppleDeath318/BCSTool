@@ -19,7 +19,6 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:models="clr-namespace:BCSTool.Models"
-        xmlns:controls="clr-namespace:BCSTool.Controls"
         Title="BCS Tool"
         Width="1180"
         Height="820"
@@ -27,6 +26,7 @@
         MinHeight="620"
         WindowStartupLocation="CenterScreen"
         Loaded="Window_Loaded"
+        Deactivated="Window_Deactivated"
         Closing="Window_Closing">
 
     <Window.Resources>
@@ -380,47 +380,81 @@
         <!--
             CONSOLE AREA
 
-            The two consoles intentionally have separate responsibilities:
-
             Server Console
-                Bannerlord's live ANSI/VT ConPTY terminal.
+                Live output from the active coop-server-*.log. Structured @DS@
+                records are consumed internally rather than shown as giant JSON
+                lines. The Players pane is built from @DS@ player snapshots.
 
             BCS Tool Console
-                BCS Tool scheduling, restart, save, recovery, and diagnostic
-                information produced by AddToolMessage(...).
+                Scheduling, restart, save, recovery, and diagnostic messages.
 
-            Command input remains below BOTH consoles.
+            Command input is a normal local WPF editor. Tab autocomplete and
+            history are handled locally; the complete line is sent on Enter.
         -->
         <Grid Grid.Row="2">
             <Grid.RowDefinitions>
-                <!--
-                    Favor the native server terminal while giving the
-                    BCS Tool console a larger working area. The two panes use
-                    a 3:1 proportional split.
-                -->
                 <RowDefinition Height="3*" MinHeight="240"/>
                 <RowDefinition Height="1*" MinHeight="100"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Native Bannerlord terminal -->
-            <GroupBox Grid.Row="0"
-                      Header="Server Console"
-                      Margin="0,0,0,8">
-                <Grid Margin="8">
-                    <controls:TerminalDisplayControl
-                             x:Name="TerminalDisplay"
-                             Snapshot="{Binding TerminalSnapshot}"
-                             FontFamily="Consolas"
-                             FontSize="13"
-                             Foreground="#CCCCCC"
-                             Background="#0C0C0C"
-                             Padding="0"
-                             BorderThickness="0"/>
-                </Grid>
-            </GroupBox>
+            <Grid Grid.Row="0"
+                  Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="1*" MinWidth="290"/>
+                </Grid.ColumnDefinitions>
 
-            <!-- BCS Tool's own scheduler/lifecycle log -->
+                <GroupBox Grid.Column="0"
+                          Header="Server Console">
+                    <Grid Margin="8">
+                        <ListBox x:Name="ServerConsoleList"
+                                 ItemsSource="{Binding ServerConsoleLines}"
+                                 FontFamily="Consolas"
+                                 FontSize="12"
+                                 Background="White"
+                                 Foreground="Black"
+                                 BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Text}"
+                                               Foreground="{Binding Foreground}"
+                                               FontFamily="Consolas"
+                                               FontSize="12"
+                                               TextWrapping="NoWrap"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </GroupBox>
+
+                <GridSplitter Grid.Column="1"
+                              Width="6"
+                              Margin="6,0"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Stretch"
+                              ResizeDirection="Columns"
+                              ResizeBehavior="PreviousAndNext"/>
+
+                <GroupBox Grid.Column="2"
+                          Header="{Binding PlayersHeaderText}">
+                    <ListBox ItemsSource="{Binding PlayerLines}"
+                             Margin="8"
+                             FontFamily="Consolas"
+                             FontSize="12"
+                             Background="White"
+                             Foreground="Black"
+                             BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                </GroupBox>
+            </Grid>
+
             <GroupBox Grid.Row="1"
                       Header="BCS Tool Console"
                       Margin="0,0,0,8">
@@ -429,8 +463,8 @@
                              ItemsSource="{Binding ConsoleLines}"
                              FontFamily="Consolas"
                              FontSize="12"
-                             Background="#111111"
-                             Foreground="#D6D6D6"
+                             Background="White"
+                             Foreground="Black"
                              BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
@@ -439,7 +473,6 @@
                 </Grid>
             </GroupBox>
 
-            <!-- Command input sends directly to the Bannerlord ConPTY session -->
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="6*"/>
@@ -448,14 +481,62 @@
 
                 <TextBox x:Name="CommandInput"
                          Grid.Column="0"
-                         Text="{Binding CommandText, Mode=OneWay}"
+                         Text="{Binding CommandText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                          PreviewKeyDown="CommandInput_PreviewKeyDown"
-                         PreviewTextInput="CommandInput_PreviewTextInput"
+                         TextChanged="CommandInput_TextChanged"
+                         LostKeyboardFocus="CommandInput_LostKeyboardFocus"
                          FontFamily="Consolas"
                          MinHeight="30"
                          VerticalContentAlignment="Center"
                          SpellCheck.IsEnabled="False"
                          Margin="0,0,8,0"/>
+
+                <!--
+                    Live command-name suggestions from the @DS@ commands list.
+                    The popup is visual only; Tab/Shift+Tab keep keyboard focus
+                    in CommandInput and cycle the same matching command set.
+                -->
+                <Popup x:Name="CommandSuggestionsPopup"
+                       PlacementTarget="{Binding ElementName=CommandInput}"
+                       Placement="Top"
+                       VerticalOffset="-4"
+                       AllowsTransparency="True"
+                       StaysOpen="True">
+                    <Border x:Name="CommandSuggestionsBorder"
+                            MaxHeight="280"
+                            Background="#1E1E1E"
+                            BorderBrush="#666666"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Padding="4">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <ListBox x:Name="CommandSuggestionsList"
+                                     Grid.Row="0"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     Background="#1E1E1E"
+                                     Foreground="#E6E6E6"
+                                     BorderThickness="0"
+                                     MaxHeight="240"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     VirtualizingPanel.IsVirtualizing="True"
+                                     VirtualizingPanel.VirtualizationMode="Recycling"
+                                     PreviewMouseLeftButtonUp="CommandSuggestionsList_PreviewMouseLeftButtonUp"/>
+
+                            <TextBlock x:Name="CommandSuggestionsStatus"
+                                       Grid.Row="1"
+                                       Margin="5,4,5,2"
+                                       Foreground="#AAAAAA"
+                                       FontSize="11"/>
+                        </Grid>
+                    </Border>
+                </Popup>
 
                 <Button Grid.Column="1"
                         Content="Send"

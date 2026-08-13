@@ -55,6 +55,12 @@ public partial class ServerConfigurationWindow : Window
             _config =
                 _configService.LoadServerConfig();
 
+            // BCS Tool's runtime console/state pipeline depends on the
+            // coop-server log. Keep the editor locked to the required value
+            // even if the file was externally changed while the app was open.
+            _config.LogFile =
+                true;
+
             DataContext =
                 _config;
 

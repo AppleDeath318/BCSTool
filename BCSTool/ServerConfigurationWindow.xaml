@@ -265,8 +265,14 @@
                 <GroupBox Header="Logging"
                           Margin="0,0,0,10">
                     <StackPanel Margin="10">
-                        <CheckBox IsChecked="{Binding LogFile}"
+                        <CheckBox IsChecked="{Binding LogFile, Mode=OneWay}"
+                                  IsEnabled="False"
                                   Content="Write server output to coop-server log files"/>
+
+                        <TextBlock Margin="0,7,0,0"
+                                   Text="BCS Tool depends on the coop-server log file for console output and server monitoring, so this option is required and cannot be disabled."
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
                     </StackPanel>
                 </GroupBox>
 

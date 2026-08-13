@@ -4,7 +4,9 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
-> \*\*Current release:\*\* v0.2.1
+``
+**Current release:** v0.2.3
+``
 
 ## Features
 
@@ -12,7 +14,7 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Automatic scheduled restart
 * Restart warning message broadcast
 * Automatic crash recovery
-* Built-in interactable BCS terminal
+* Built-in live server log console with local command input
 * Automatic server executable detection
 * Server configuration modification
 * Mod configuration modification
@@ -33,14 +35,14 @@ Download the latest compiled version from the repository's **Releases** page.
 For normal use, download:
 
 ```text
-BCS Tool.exe
+BCS Tool v<version>.exe
 ```
 
 The files automatically provided by GitHub as `Source code (zip)` and `Source code (tar.gz)` contain the project source rather than the compiled application.
 
 ## Getting Started
 
-1. Launch **BCS Tool.exe**.
+1. Launch the versioned executable, for example **BCS Tool vX.Y.Z.exe**.
 2. BCS Tool will try to locate `BannerlordCoopServer.exe` automatically.
 3. If the executable is not detected, use **Browse** to select it manually.
 4. Press **Start** to launch the server.
@@ -208,7 +210,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\\Publish-SingleExe.ps1
 The resulting standalone executable will be placed in:
 
 ```text
-publish\\BCS Tool.exe
+publish\\BCS Tool v<version>.exe
 ```
 
 The publish configuration is:
@@ -223,7 +225,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.1.0
+0.2.3
 ```
 
 The application version is defined in:
@@ -235,7 +237,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.1.0</Version>
+<Version>0.2.3</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -243,9 +245,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.1.0
-v0.1.1
-v0.2.0
+v0.2.3
 ```
 
 ## Development Status

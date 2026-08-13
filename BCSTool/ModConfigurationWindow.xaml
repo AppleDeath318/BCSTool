@@ -33,6 +33,18 @@
             </Setter>
         </Style>
 
+        <!-- Keep both the selected value and every item in all dropdowns
+             centered consistently throughout this window. -->
+        <Style TargetType="ComboBox">
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
         <x:Array x:Key="DifficultyLevels" Type="{x:Type sys:String}">
             <sys:String>VeryEasy</sys:String>
             <sys:String>Easy</sys:String>
@@ -48,6 +60,12 @@
             <sys:String>Enabled</sys:String>
             <sys:String>OneDayMax</sys:String>
             <sys:String>Disabled</sys:String>
+        </x:Array>
+
+        <x:Array x:Key="LordDefectionRetryModes" Type="{x:Type sys:String}">
+            <sys:String>Vanilla</sys:String>
+            <sys:String>NeverExpire</sys:String>
+            <sys:String>AlwaysRetry</sys:String>
         </x:Array>
     </Window.Resources>
 
@@ -499,6 +517,9 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0"
@@ -568,13 +589,59 @@
 
                         <TextBlock Grid.Row="6" Grid.Column="0"
                                    Text="Maximum looters multiplier"
-                                   VerticalAlignment="Center"/>
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
                         <TextBox Grid.Row="6" Grid.Column="1"
-                                 Text="{Binding MaximumLootersMultiplier, UpdateSourceTrigger=LostFocus}"/>
+                                 Text="{Binding MaximumLootersMultiplier, UpdateSourceTrigger=LostFocus}"
+                                 Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="6" Grid.Column="2"
                                    Text="High values may hurt performance"
                                    Foreground="DarkGoldenrod"
                                    VerticalAlignment="Center"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="7" Grid.Column="0"
+                                   Text="Lord defection retries"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+                        <ComboBox Grid.Row="7" Grid.Column="1"
+                                  ItemsSource="{StaticResource LordDefectionRetryModes}"
+                                  SelectedItem="{Binding LordDefectionRetries}"
+                                  Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="7" Grid.Column="2"
+                                   Text="Vanilla = refusal expires after one in-game year"
+                                   Foreground="Gray"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="8" Grid.Column="0"
+                                   Text="Allow AI hero executions"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+                        <ComboBox Grid.Row="8" Grid.Column="1"
+                                  ItemsSource="{StaticResource EnabledDisabledOptions}"
+                                  SelectedItem="{Binding EnableHeroExecutions, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
+                                  Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="8" Grid.Column="2"
+                                   Text="Controls whether players can execute AI clan members"
+                                   Foreground="Gray"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="9" Grid.Column="0"
+                                   Text="Allow player clan member executions"
+                                   VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="9" Grid.Column="1"
+                                  ItemsSource="{StaticResource EnabledDisabledOptions}"
+                                  SelectedItem="{Binding EnablePlayerClanMemberExecutions, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
+                                  IsEnabled="{Binding EnableHeroExecutions}"/>
+                        <TextBlock Grid.Row="9" Grid.Column="2"
+                                   Text="Includes player companions and family; requires hero executions"
+                                   Foreground="Gray"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
                                    Margin="10,0,0,0"/>
                     </Grid>
                 </GroupBox>

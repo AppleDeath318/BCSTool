@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using System.Text.Json;
 using BCSTool.Infrastructure;
 using BCSTool.Models;
 using BCSTool.Services;
@@ -54,6 +55,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private readonly ServerProcessManager _processManager;
     private readonly RestartScheduler _restartScheduler;
     private readonly PlayerRosterTracker _playerRosterTracker;
+    private readonly ServerLogMonitor _serverLogMonitor;
     private readonly ServerExecutableLocator _serverExecutableLocator;
     private readonly SaveBackupService _saveBackupService;
 
@@ -80,58 +82,44 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private string _serverExecutableDetectionStatus =
         "Checking server executable...";
 
-    // Raw ConPTY output may split a message across chunks. Keep only enough
-    // trailing text to detect the next "Successfully saved" marker across a
-    // chunk boundary without retaining unbounded console data.
+    // The live dedicated-server log is the authoritative source for
+    // readiness, successful-save, hosted-server crash, player, command, and
+    // native runtime-state events. Commands are sent through redirected stdin.
     private const string SuccessfulSaveMarker = "Successfully saved";
-    private readonly object _saveMarkerLock = new();
-    private string _saveMarkerTail = "";
-
-    // BannerlordCoopServer.exe is a launcher/terminal host. A fatal game-server
-    // failure can terminate the hosted server while leaving this launcher
-    // process and ConPTY window alive. In that failure mode Process.Exited does
-    // not fire, so crash recovery also watches the authoritative terminal
-    // markers emitted by the dedicated server/launcher.
-    private const string FatalServerStateMarker = "\"phase\":\"fatal\"";
     private const string LauncherUnexpectedExitMarker =
         "[launcher] the server exited unexpectedly";
 
-    private readonly object _crashMarkerLock = new();
-    private string _crashMarkerTail = "";
-
-    // Both terminal markers and Process.Exited can report the same crash.
+    // Both server-log markers and Process.Exited can report the same crash.
     // Latch one recovery request per managed server session so a delayed
     // Process.Exited event cannot start a second recovery against the new
     // instance.
     private int _crashRecoverySignalQueued;
 
-    // Bannerlord's native footer exposes a more detailed runtime state, e.g.
-    // "SERVING". This value is display-only: the ServerState enum remains the
+    // Bannerlord's structured server-log state exposes a more detailed runtime
+    // status, e.g. "SERVING". This value is display-only: ServerState remains the
     // authoritative state machine used by automation.
-    private string _nativeServerStatus = "";
+    private string _reportedServerStatus = "";
 
-    private int _commandCaretIndex;
-    private string _terminalText = "";
-
-    private TerminalScreenSnapshot _terminalSnapshot =
-        TerminalScreenSnapshot.Empty;
-
-    // Once Bannerlord's full TUI header has been observed, transient redraw
-    // frames that temporarily omit it are not allowed to replace the last
-    // complete screen. This makes full-screen redraws visually atomic.
-    private bool _hasSeenCompleteTerminalHeader;
-
-    // ConsoleLines is retained for internal BCS Tool diagnostic messages and
-    // compatibility with the learning walkthrough. The visible server console
-    // in v1.2 is TerminalText reconstructed from ConPTY.
+    // BCS Tool lifecycle/scheduler messages.
     public ObservableCollection<string> ConsoleLines { get; } = new();
 
+    // The visible Server Console now follows the dedicated server's .log file.
+    // Keep a bounded live window so a long-running 24/7 server cannot grow the
+    // WPF collection without limit. The full log always remains on disk.
+    private const int MaximumServerConsoleLines = 10000;
+    public ObservableCollection<ServerConsoleLine> ServerConsoleLines
+    {
+        get;
+    } = new();
+
+    // Populated from the log-only @DS@ {"ev":"commands"} event. Tab completion
+    // is therefore local to BCS Tool and no longer depends on the native prompt.
+    private readonly List<string> _availableCommands = new();
+
     /// <summary>
-    /// Text shown in the dedicated Players panel.
-    ///
-    /// When the server exposes its terminal roster through redirected output,
-    /// these lines contain the player/character rows. If only the player count
-    /// is available, a helpful fallback message is shown instead.
+    /// Text shown in the dedicated Players panel. The source is the complete
+    /// log-only @DS@ players snapshot, so states such as "creating character"
+    /// are not limited by the native terminal's visual column width.
     /// </summary>
     public ObservableCollection<string> PlayerLines { get; } = new()
     {
@@ -261,29 +249,29 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// <summary>
     /// Text shown in the top "Server state" field.
     ///
-    /// While a managed server process is running, Bannerlord's native footer
-    /// is preferred because it exposes a more detailed runtime status than
-    /// BCS Tool's lifecycle enum. Critical BCS Tool states such as Error,
+    /// While a managed server process is running, Bannerlord's structured
+    /// log state is preferred because it exposes a more detailed runtime status
+    /// than BCS Tool's lifecycle enum. Critical BCS Tool states such as Error,
     /// Crashed, PortBlocked, and Restarting still take precedence.
     ///
     /// The internal ServerState enum is deliberately NOT replaced by this
-    /// native text because save/restart/crash automation depends on it.
+    /// reported text because save/restart/crash automation depends on it.
     /// </summary>
     public string ServerStateText
     {
         get
         {
-            var useNativeStatus =
+            var useReportedStatus =
                 _processManager.IsRunning &&
                 !string.IsNullOrWhiteSpace(
-                    _nativeServerStatus) &&
+                    _reportedServerStatus) &&
                 ServerState is not ServerState.Error and
                     not ServerState.Crashed and
                     not ServerState.PortBlocked and
                     not ServerState.Restarting;
 
-            if (useNativeStatus)
-                return _nativeServerStatus;
+            if (useReportedStatus)
+                return _reportedServerStatus;
 
             return ServerState switch
             {
@@ -320,23 +308,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
         !_processManager.IsRunning;
 
 
-    /// <summary>
-    /// Called by MainWindow when the visible Server Console viewport changes.
-    ///
-    /// Pixel-to-character measurement belongs in the WPF view because it
-    /// depends on the actual font and DPI. The ViewModel only forwards the
-    /// resulting character-grid size to the process manager.
-    /// </summary>
-    public void ResizeTerminal(
-        int columns,
-        int rows)
-    {
-        _processManager.ResizeTerminal(
-            columns,
-            rows);
-    }
-
-
     public string StatusMessage
     {
         get => _statusMessage;
@@ -361,25 +332,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
         private set => SetProperty(ref _nextRestartText, value);
     }
 
-    /// <summary>
-    /// Styled ConPTY screen used by TerminalDisplayControl.
-    /// </summary>
-    public TerminalScreenSnapshot TerminalSnapshot
-    {
-        get => _terminalSnapshot;
-        private set => SetProperty(ref _terminalSnapshot, value);
-    }
-
-
-    /// <summary>
-    /// Current rendered left/log pane of the ConPTY terminal screen.
-    /// </summary>
-    public string TerminalText
-    {
-        get => _terminalText;
-        private set => SetProperty(ref _terminalText, value);
-    }
-
     public string CommandText
     {
         get => _commandText;
@@ -390,18 +342,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 CommandManager.InvalidateRequerySuggested();
             }
         }
-    }
-
-    /// <summary>
-    /// Caret position mirrored from Bannerlord's native ConPTY prompt.
-    ///
-    /// WPF TextBox.CaretIndex is not a dependency property, so MainWindow
-    /// listens for this property and applies it after the Text binding updates.
-    /// </summary>
-    public int CommandCaretIndex
-    {
-        get => _commandCaretIndex;
-        private set => SetProperty(ref _commandCaretIndex, value);
     }
 
     public ICommand StartCommand { get; }
@@ -427,6 +367,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         ServerProcessManager processManager,
         RestartScheduler restartScheduler,
         PlayerRosterTracker playerRosterTracker,
+        ServerLogMonitor serverLogMonitor,
         ServerExecutableLocator serverExecutableLocator,
         SaveBackupService saveBackupService)
     {
@@ -436,19 +377,24 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _processManager = processManager;
         _restartScheduler = restartScheduler;
         _playerRosterTracker = playerRosterTracker;
+        _serverLogMonitor = serverLogMonitor;
         _serverExecutableLocator = serverExecutableLocator;
         _saveBackupService = saveBackupService;
 
         _dispatcher = Application.Current.Dispatcher;
 
-        _processManager.OutputReceived += ProcessManager_OutputReceived;
-        _processManager.TerminalScreenUpdated +=
-            ProcessManager_TerminalScreenUpdated;
+        // The dedicated-server log is authoritative for runtime output/state,
+        // while redirected stdin is used only for completed commands.
+        // Process.Exited remains an independent crash fallback if the managed
+        // launcher itself terminates before a log marker is observed.
         _processManager.UnexpectedExit += ProcessManager_UnexpectedExit;
+
+        _serverLogMonitor.LinesReceived +=
+            ServerLogMonitor_LinesReceived;
 
         StartCommand = new AsyncRelayCommand(
             StartServerAsync,
-            () => !_processManager.IsRunning && !_applicationClosing);
+            CanStartServer);
 
         SaveCommand = new AsyncRelayCommand(
             SaveServerAsync,
@@ -463,12 +409,12 @@ public sealed class MainViewModel : BindableBase, IDisposable
                   !_applicationClosing);
 
         StopCommand = new AsyncRelayCommand(
-            () => StopServerAsync(saveFirst: true),
+            StopServerAsync,
             () => _processManager.IsRunning &&
                   !_applicationClosing);
 
         SendCommandCommand = new AsyncRelayCommand(
-            SubmitNativeCommandLineAsync,
+            SubmitCommandLineAsync,
             () => _processManager.IsRunning &&
                   !_applicationClosing);
 
@@ -480,15 +426,34 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         BrowseServerCommand = new AsyncRelayCommand(BrowseServerExecutableAsync);
 
-        // Clears BCS Tool's own informational console only.
-        //
-        // The live Server Console is the authoritative ConPTY terminal and is
-        // deliberately not modified by this command.
+        // Clears BCS Tool's own informational console only. The live
+        // Server Console follows the current server .log independently.
         ClearConsoleCommand = new RelayCommand(
             () => ConsoleLines.Clear());
 
         OpenServerLogsCommand = new RelayCommand(OpenServerLogs);
     }
+
+    private bool CanStartServer()
+    {
+        if (
+            _applicationClosing ||
+            _processManager.IsRunning)
+        {
+            return false;
+        }
+
+        // During a controlled restart there is intentionally a short period
+        // where the old process has exited and the replacement has not started
+        // yet. Process absence alone must not make Start clickable during that
+        // lifecycle gap. Only explicit manual-start states allow a fresh start.
+        return ServerState is
+            ServerState.Stopped or
+            ServerState.Crashed or
+            ServerState.PortBlocked or
+            ServerState.Error;
+    }
+
 
     /// <summary>
     /// One-time application initialization.
@@ -530,8 +495,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// Performs all safety checks and starts the server.
     ///
     /// Notice that "process started" is NOT the same as "server ready".
-    /// After startup we move into WaitingForReady and wait until stdout
-    /// contains Settings.ReadyText.
+    /// After startup we move into WaitingForReady and wait until the live
+    /// dedicated-server log reports the configured ready marker/state.
     /// </summary>
     private async Task StartServerAsync()
     {
@@ -542,95 +507,14 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         try
         {
-            if (_processManager.IsRunning)
+            // Re-check after acquiring the lifecycle lock. This also prevents a
+            // queued/manual Start from slipping through while a restart is in
+            // progress and temporarily has no running process.
+            if (!CanStartServer())
                 return;
 
-            var validation = Settings.Validate();
-
-            if (validation.Count > 0)
-            {
-                ServerState = ServerState.Error;
-                StatusMessage = string.Join(" ", validation);
-                AddToolMessage("Settings validation failed: " + StatusMessage);
-                return;
-            }
-
-            var executablePath = Settings.ResolveServerExecutablePath();
-            var workingDirectory = Settings.ResolveServerDirectory();
-
-            if (!File.Exists(executablePath))
-            {
-                ServerState = ServerState.Error;
-                StatusMessage = $"Server executable not found: {executablePath}";
-                AddToolMessage(StatusMessage);
-                return;
-            }
-
-            // Do not knowingly start a second server executable.
-            if (_processManager.HasExternalServerProcess(executablePath))
-            {
-                ServerState = ServerState.PortBlocked;
-                StatusMessage =
-                    "Another BannerlordCoopServer process already exists. " +
-                    "BCS Tool will not start a duplicate. " +
-                    "If you previously stopped a Visual Studio debug session, " +
-                    "this may be a leftover process from that run.";
-                AddToolMessage(StatusMessage);
-                return;
-            }
-
-            // Optional network-port guard.
-            //
-            // ServerPort = 0 disables this check. This is safer than assuming
-            // that an arbitrary port shown in server console output is the
-            // server's exclusive listening port.
-            if (
-                Settings.ServerPort > 0 &&
-                _portMonitor.IsPortInUse(Settings.ServerPort))
-            {
-                ServerState = ServerState.PortBlocked;
-                StatusMessage =
-                    $"Port {Settings.ServerPort} is already in use. " +
-                    "BCS Tool will not start another server while that configured port is occupied.";
-                AddToolMessage(StatusMessage);
-                return;
-            }
-
-            _serverReady = false;
-            _nextRestartAt = null;
-            _lastWarningKey = null;
-            ResetCrashOutputDetection();
-            ResetPlayerRoster();
-
-            // Do not let the previous process's footer status linger while a
-            // new ConPTY screen is being created.
-            SetNativeServerStatus("");
-
-            ServerState = ServerState.Starting;
-            StatusMessage = "Starting Bannerlord server...";
-
-            var started = await _processManager.StartAsync(
-                executablePath,
-                workingDirectory,
-                _lifetimeCts.Token);
-
-            if (!started)
-            {
-                ServerState = ServerState.Error;
-                StatusMessage = "Server process failed to start.";
-                AddToolMessage(StatusMessage);
-                return;
-            }
-
-            ServerPidText = _processManager.ProcessId?.ToString() ?? "-";
-            ServerState = ServerState.WaitingForReady;
-            StatusMessage =
-                $"Waiting for: {Settings.ReadyText}";
-
-            AddToolMessage(
-                $"Server process started. PID {_processManager.ProcessId}.");
-            AddToolMessage(
-                "Scheduled automation remains disabled until readiness is detected.");
+            await StartServerWhileLockedAsync(
+                logAutomationDisabledMessage: true);
         }
         finally
         {
@@ -654,28 +538,13 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (!_processManager.IsRunning)
                 return;
 
-            ServerState = ServerState.Saving;
-            StatusMessage = "Saving server...";
-
-            await BroadcastAsync(Settings.BroadcastSaving);
-            await Task.Delay(1000, _lifetimeCts.Token);
-
-            var sent = await _processManager.SendCommandAsync(
-                "save",
-                _lifetimeCts.Token);
-
-            if (!sent)
+            if (!await TrySaveServerAsync(
+                    "Saving server...",
+                    broadcastSavingMessage: true,
+                    logCommandSent: true))
             {
-                ServerState = ServerState.Error;
-                StatusMessage = "Could not send save command.";
                 return;
             }
-
-            AddToolMessage("Save command sent.");
-
-            await Task.Delay(
-                TimeSpan.FromSeconds(Settings.SaveWaitSeconds),
-                _lifetimeCts.Token);
 
             ServerState = _serverReady
                 ? ServerState.Ready
@@ -690,15 +559,56 @@ public sealed class MainViewModel : BindableBase, IDisposable
         }
     }
 
+
+    /// <summary>
+    /// Sends the explicit manual-save sequence.
+    /// The caller must already hold _operationLock.
+    /// </summary>
+    private async Task<bool> TrySaveServerAsync(
+        string statusMessage,
+        bool broadcastSavingMessage,
+        bool logCommandSent)
+    {
+        ServerState = ServerState.Saving;
+        StatusMessage = statusMessage;
+
+        if (broadcastSavingMessage)
+        {
+            await BroadcastAsync(Settings.BroadcastSaving);
+            await Task.Delay(
+                TimeSpan.FromSeconds(1),
+                _lifetimeCts.Token);
+        }
+
+        if (!await _processManager.SendCommandAsync(
+                "save",
+                _lifetimeCts.Token))
+        {
+            ServerState = ServerState.Error;
+            StatusMessage = "Could not send save command.";
+            return false;
+        }
+
+        if (logCommandSent)
+            AddToolMessage("Save command sent.");
+
+        await Task.Delay(
+            TimeSpan.FromSeconds(Settings.SaveWaitSeconds),
+            _lifetimeCts.Token);
+
+        return true;
+    }
+
     /// <summary>
     /// Full controlled restart sequence.
     ///
+    /// Bannerlord Coop's native "stop" command saves the world before it
+    /// exits, so BCS Tool deliberately does not send a separate "save" first.
+    /// This avoids writing the same save twice during every restart.
+    ///
     /// Sequence:
-    ///   broadcast saving
-    ///   → save
-    ///   → wait
-    ///   → broadcast restarting
-    ///   → stop
+    ///   broadcast restarting
+    ///   → stop (the server saves as part of stop)
     ///   → wait for process exit
     ///   → verify the port is free
     ///   → delay
@@ -721,27 +631,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
             AddToolMessage($"Restart sequence started: {reason}");
 
-            ServerState = ServerState.Saving;
-            StatusMessage = "Saving before restart...";
-
-            await BroadcastAsync(Settings.BroadcastSaving);
-            await Task.Delay(1000, _lifetimeCts.Token);
-
-            if (!await _processManager.SendCommandAsync(
-                    "save",
-                    _lifetimeCts.Token))
-            {
-                ServerState = ServerState.Error;
-                StatusMessage = "Could not send save command.";
-                return;
-            }
-
-            await Task.Delay(
-                TimeSpan.FromSeconds(Settings.SaveWaitSeconds),
-                _lifetimeCts.Token);
-
             await BroadcastAsync(Settings.BroadcastRestarting);
-            await Task.Delay(2000, _lifetimeCts.Token);
+            await Task.Delay(
+                TimeSpan.FromSeconds(2),
+                _lifetimeCts.Token);
 
             ServerState = ServerState.Stopping;
             StatusMessage = "Stopping server gracefully...";
@@ -825,13 +718,45 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// StartServerAsync method would deadlock trying to acquire the same lock
     /// again. This method performs startup while reusing the existing lock.
     /// </summary>
-    private async Task StartServerWhileLockedAsync()
+    private async Task StartServerWhileLockedAsync(
+        bool logAutomationDisabledMessage = false)
     {
         if (_applicationClosing)
             return;
 
+        var validation = Settings.Validate();
+
+        if (validation.Count > 0)
+        {
+            ServerState = ServerState.Error;
+            StatusMessage = string.Join(" ", validation);
+            AddToolMessage("Settings validation failed: " + StatusMessage);
+            return;
+        }
+
         var executablePath = Settings.ResolveServerExecutablePath();
         var workingDirectory = Settings.ResolveServerDirectory();
+
+        if (!File.Exists(executablePath))
+        {
+            ServerState = ServerState.Error;
+            StatusMessage =
+                $"Server executable not found: {executablePath}";
+            AddToolMessage(StatusMessage);
+            return;
+        }
+
+        if (_processManager.HasExternalServerProcess(executablePath))
+        {
+            ServerState = ServerState.PortBlocked;
+            StatusMessage =
+                "Another BannerlordCoopServer process already exists. " +
+                "BCS Tool will not start a duplicate. " +
+                "If you previously stopped a Visual Studio debug session, " +
+                "this may be a leftover process from that run.";
+            AddToolMessage(StatusMessage);
+            return;
+        }
 
         if (
             Settings.ServerPort > 0 &&
@@ -839,50 +764,74 @@ public sealed class MainViewModel : BindableBase, IDisposable
         {
             ServerState = ServerState.PortBlocked;
             StatusMessage =
-                $"Port {Settings.ServerPort} is still in use. Server not started.";
+                $"Port {Settings.ServerPort} is already in use. " +
+                "BCS Tool will not start another server while that configured port is occupied.";
+            AddToolMessage(StatusMessage);
             return;
         }
 
         _serverReady = false;
         _nextRestartAt = null;
         _lastWarningKey = null;
-        ResetCrashOutputDetection();
+        ResetCrashRecoverySignal();
         ResetPlayerRoster();
+
+        // Prevent the previous server session's reported status from surviving
+        // until the new log emits its first structured state event.
+        SetReportedServerStatus("");
 
         ServerState = ServerState.Starting;
         StatusMessage = "Starting Bannerlord server...";
 
-        var started = await _processManager.StartAsync(
-            executablePath,
-            workingDirectory,
-            _lifetimeCts.Token);
+        // Snapshot existing server logs BEFORE launch so the monitor can bind
+        // unambiguously to the new coop-server-*.log created by this session.
+        _serverLogMonitor.PrepareForServerStart();
+        ServerConsoleLines.Clear();
 
-        if (!started)
+        if (!await _processManager.StartAsync(
+                executablePath,
+                workingDirectory,
+                _lifetimeCts.Token))
         {
+            _serverLogMonitor.StopMonitoring();
             ServerState = ServerState.Error;
             StatusMessage = "Server process failed to start.";
+            AddToolMessage(StatusMessage);
             return;
         }
 
-        ServerPidText = _processManager.ProcessId?.ToString() ?? "-";
+        _serverLogMonitor.StartMonitoring(
+            _lifetimeCts.Token);
+
+        ServerPidText =
+            _processManager.ProcessId?.ToString() ?? "-";
+
         ServerState = ServerState.WaitingForReady;
-        StatusMessage = $"Waiting for: {Settings.ReadyText}";
+        StatusMessage =
+            $"Waiting for: {Settings.ReadyText}";
 
         AddToolMessage(
             $"Server process started. PID {_processManager.ProcessId}.");
+
+        if (logAutomationDisabledMessage)
+        {
+            AddToolMessage(
+                "Scheduled automation remains disabled until readiness is detected.");
+        }
     }
 
     /// <summary>
     /// Public-facing wrapper that serializes stop operations with
-    /// _operationLock.
+    /// _operationLock. The native server "stop" command performs its own save,
+    /// so no separate save command is sent first.
     /// </summary>
-    private async Task StopServerAsync(bool saveFirst)
+    private async Task StopServerAsync()
     {
         await _operationLock.WaitAsync();
 
         try
         {
-            await StopServerWhileLockedAsync(saveFirst);
+            await StopServerWhileLockedAsync();
         }
         finally
         {
@@ -893,9 +842,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
     /// <summary>
     /// Gracefully stops the managed server while the caller already holds
-    /// _operationLock.
+    /// _operationLock. Bannerlord Coop saves the world as part of "stop".
     /// </summary>
-    private async Task<bool> StopServerWhileLockedAsync(bool saveFirst)
+    private async Task<bool> StopServerWhileLockedAsync()
     {
         if (!_processManager.IsRunning)
         {
@@ -905,20 +854,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         _nextRestartAt = null;
         _lastWarningKey = null;
-
-        if (saveFirst)
-        {
-            ServerState = ServerState.Saving;
-            StatusMessage = "Saving before shutdown...";
-
-            await _processManager.SendCommandAsync(
-                "save",
-                _lifetimeCts.Token);
-
-            await Task.Delay(
-                TimeSpan.FromSeconds(Settings.SaveWaitSeconds),
-                _lifetimeCts.Token);
-        }
 
         ServerState = ServerState.Stopping;
         StatusMessage = "Stopping server gracefully...";
@@ -935,6 +870,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
         }
 
         _serverReady = false;
+
+        // Leave the completed session log monitor alive until the next Start
+        // (or application disposal). The native stop command saves immediately
+        // before exit, and the log tailer must be allowed to consume those final
+        // "Successfully saved" lines so normal backup rotation still occurs.
         ResetPlayerRoster();
 
         ServerState = ServerState.Stopped;
@@ -948,45 +888,134 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
     /// <summary>
-    /// Submits Bannerlord's CURRENT native console input line.
+    /// Sends the complete local WPF command line to the server.
     ///
-    /// v1.7 mirrors every editing keystroke into ConPTY as it happens, so the
-    /// server already owns the command text. Clicking Send/pressing Enter must
-    /// therefore send ONLY the native Enter key rather than re-sending the
-    /// complete WPF CommandText string.
+    /// BCS Tool now owns command editing, caret movement, history, and Tab
+    /// completion. Nothing is mirrored into Bannerlord until Send/Enter.
     /// </summary>
-    private async Task SubmitNativeCommandLineAsync()
+    private async Task SubmitCommandLineAsync()
     {
-        var submittedText =
-            CommandText;
+        var command =
+            CommandText.Trim();
 
-        if (await _processManager.SendRawInputAsync(
-                "\r",
+        if (command.Length == 0)
+            return;
+
+        // `stop` is not an ordinary fire-and-forget server command. It ends
+        // the managed launcher process, so route it through BCS Tool's normal
+        // graceful-stop lifecycle. That marks the exit as expected and keeps
+        // the UI/log monitor in sync instead of reporting a crash.
+        if (string.Equals(
+                command,
+                "stop",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            RememberSubmittedCommand(
+                command);
+
+            AddToolMessage(
+                $"> {command}");
+
+            CommandText = "";
+
+            await StopServerAsync();
+
+            return;
+        }
+
+        if (!await _processManager.SendCommandAsync(
+                command,
                 _lifetimeCts.Token))
         {
-            if (!string.IsNullOrWhiteSpace(submittedText))
-            {
-                AddToolMessage(
-                    $"> {submittedText}");
-            }
+            return;
         }
+
+        RememberSubmittedCommand(
+            command);
+
+        AddToolMessage(
+            $"> {command}");
+
+        CommandText = "";
     }
 
 
     /// <summary>
-    /// Sends raw interactive terminal input to Bannerlord.
-    ///
-    /// MainWindow uses this for text input and native editing/autocomplete
-    /// keys. No BCS Tool command database is involved.
+    /// Returns command-name completions loaded from the server log's structured
+    /// @DS@ commands event.
     /// </summary>
-    public Task<bool> SendTerminalInputAsync(
-        string input)
+    public IReadOnlyList<string> GetCommandCompletions(
+        string prefix)
     {
+        if (string.IsNullOrWhiteSpace(prefix))
+            return Array.Empty<string>();
+
         return
-            _processManager.SendRawInputAsync(
-                input,
-                _lifetimeCts.Token);
+            _availableCommands
+                .Where(
+                    command =>
+                        command.StartsWith(
+                            prefix,
+                            StringComparison.OrdinalIgnoreCase))
+                .ToArray();
     }
+
+
+    private readonly List<string> _commandHistory = new();
+    private int _commandHistoryIndex = -1;
+    private string _commandHistoryDraft = "";
+
+
+    public void NavigateCommandHistory(
+        int direction)
+    {
+        if (
+            direction == 0 ||
+            _commandHistory.Count == 0)
+        {
+            return;
+        }
+
+        if (_commandHistoryIndex < 0)
+        {
+            _commandHistoryDraft =
+                CommandText;
+
+            _commandHistoryIndex =
+                _commandHistory.Count;
+        }
+
+        _commandHistoryIndex =
+            Math.Clamp(
+                _commandHistoryIndex + direction,
+                0,
+                _commandHistory.Count);
+
+        CommandText =
+            _commandHistoryIndex == _commandHistory.Count
+                ? _commandHistoryDraft
+                : _commandHistory[_commandHistoryIndex];
+    }
+
+
+    private void RememberSubmittedCommand(
+        string command)
+    {
+        if (
+            _commandHistory.Count == 0 ||
+            !string.Equals(
+                _commandHistory[^1],
+                command,
+                StringComparison.Ordinal))
+        {
+            _commandHistory.Add(
+                command);
+        }
+
+        _commandHistoryIndex = -1;
+        _commandHistoryDraft = "";
+    }
+
 
     /// <summary>
     /// Convenience helper translating a human-readable message into the
@@ -1187,10 +1216,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
     /// <summary>
-    /// Opens a normal Windows file picker so the user can locate
-    /// BannerlordCoopServer.exe without editing JSON manually.
-    /// </summary>
-    /// <summary>
     /// Restores only the Restart Settings panel to its built-in defaults and
     /// persists those restart defaults immediately.
     ///
@@ -1242,6 +1267,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
 
+    /// <summary>
+    /// Lets the user select BannerlordCoopServer.exe and persists that path
+    /// independently from the restart settings.
+    /// </summary>
     private async Task BrowseServerExecutableAsync()
     {
         var dialog = new OpenFileDialog
@@ -1295,13 +1324,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         try
         {
             var serverLogDirectory =
-                Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.MyDocuments),
-                    "Mount and Blade II Bannerlord",
-                    "CoopData",
-                    "DedicatedServer",
-                    "logs");
+                _serverLogMonitor.LogDirectory;
 
             Directory.CreateDirectory(
                 serverLogDirectory);
@@ -1333,24 +1356,16 @@ public sealed class MainViewModel : BindableBase, IDisposable
         PlayerLines.Clear();
         PlayerLines.Add("(no one online)");
 
-        _hasSeenCompleteTerminalHeader = false;
-        TerminalSnapshot =
-            TerminalScreenSnapshot.Empty;
-        TerminalText = "";
-
         CommandText = "";
-        CommandCaretIndex = 0;
+        _availableCommands.Clear();
 
         OnPropertyChanged(nameof(PlayersHeaderText));
     }
 
 
     /// <summary>
-    /// Synchronizes the WPF Players panel with PlayerRosterTracker.
-    ///
-    /// If the server only exposes a count, we still show that count and make
-    /// it clear that the detailed terminal roster was not present in the
-    /// redirected stdout stream.
+    /// Synchronizes the WPF Players panel with the latest structured @DS@
+    /// players snapshot from the server log.
     /// </summary>
     private void RefreshPlayerRoster()
     {
@@ -1361,30 +1376,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
         if (_playerRosterTracker.PlayerCount <= 0)
         {
             PlayerLines.Add("(no one online)");
-            return;
-        }
-
-        if (_playerRosterTracker.RosterLines.Count == 0)
-        {
-            // Only show pulse-based fallback text before the native ConPTY
-            // Players pane has ever been detected.
-            //
-            // Once a native pane has been seen, transient redraw frames keep
-            // the previous valid roster instead of replacing it.
-            if (!_playerRosterTracker.HasNativePane)
-            {
-                PlayerLines.Add(
-                    $"{_playerRosterTracker.PlayerCount} player(s) online");
-
-                PlayerLines.Add(
-                    "(waiting for native Players pane)");
-            }
-            else
-            {
-                PlayerLines.Add(
-                    $"{_playerRosterTracker.PlayerCount} player(s) online");
-            }
-
             return;
         }
 
@@ -1527,140 +1518,391 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
 
     /// <summary>
-    /// Handles raw ConPTY terminal chunks.
-    ///
-    /// Raw chunks can contain VT/ANSI control sequences, so they are not
-    /// displayed directly. They are used for fast readiness detection while
-    /// VirtualTerminalScreen handles the visible terminal rendering.
+    /// Receives live lines from the active coop-server-*.log. This is the
+    /// authoritative runtime feed for visible console output and structured
+    /// server state. Redirected stdout/stderr are intentionally not consulted here.
     /// </summary>
-    private void ProcessManager_OutputReceived(
+    private void ServerLogMonitor_LinesReceived(
         object? sender,
-        string chunk)
+        ServerLogLinesEventArgs e)
     {
-        // The launcher can stay alive after the hosted game server fatally
-        // exits. Detect that condition from raw ConPTY output instead of
-        // relying exclusively on BannerlordCoopServer.exe Process.Exited.
-        if (
-            ConsumeUnexpectedServerFailureMarker(
-                chunk,
-                out var failureReason))
+        var visibleLines =
+            new List<string>(
+                e.Lines.Count);
+
+        var structuredEvents =
+            new List<string>();
+
+        var readyTextDetected =
+            false;
+
+        var successfulSaveCount =
+            0;
+
+        var launcherUnexpectedExitDetected =
+            false;
+
+        foreach (var line in e.Lines)
         {
-            QueueCrashRecovery(
-                failureReason);
+            if (
+                !readyTextDetected &&
+                !string.IsNullOrWhiteSpace(
+                    Settings.ReadyText) &&
+                line.Contains(
+                    Settings.ReadyText,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                readyTextDetected = true;
+            }
+
+            if (
+                line.Contains(
+                    SuccessfulSaveMarker,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                successfulSaveCount++;
+            }
+
+            if (
+                !launcherUnexpectedExitDetected &&
+                line.Contains(
+                    LauncherUnexpectedExitMarker,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                launcherUnexpectedExitDetected = true;
+            }
+
+            var markerIndex =
+                line.IndexOf(
+                    "@DS@",
+                    StringComparison.Ordinal);
+
+            if (markerIndex >= 0)
+            {
+                structuredEvents.Add(
+                    line[(markerIndex + 4)..].Trim());
+            }
+            else
+            {
+                visibleLines.Add(line);
+            }
         }
 
-        // Save completion is independent from server readiness. Bannerlord's
-        // engine emits "Successfully saved" only after the save process has
-        // completed, so this is the trigger for BCS Tool's rotation.
-        if (ConsumeSuccessfulSaveMarker(chunk))
+        _ = _dispatcher.BeginInvoke(
+            new Action(() =>
+            {
+                AppendServerConsoleLines(
+                    visibleLines);
+
+                foreach (var json in structuredEvents)
+                {
+                    ProcessDedicatedServerEvent(
+                        json);
+                }
+
+                for (
+                    var saveIndex = 0;
+                    saveIndex < successfulSaveCount;
+                    saveIndex++)
+                {
+                    _ = CreateSaveBackupAfterSuccessfulSaveAsync();
+                }
+
+                if (readyTextDetected)
+                {
+                    MarkServerReadyFromLog();
+                }
+
+                if (launcherUnexpectedExitDetected)
+                {
+                    QueueCrashRecovery(
+                        "Launcher reported that the hosted server exited unexpectedly.");
+                }
+            }));
+    }
+
+
+    private void AppendServerConsoleLines(
+        IReadOnlyList<string> lines)
+    {
+        foreach (var line in lines)
         {
-            _ = CreateSaveBackupAfterSuccessfulSaveAsync();
+            // The persisted server log keeps its original timestamp. The
+            // in-app console omits the leading HH:mm:ss.fff field because the
+            // session already presents entries in chronological order.
+            var displayLine =
+                RemoveServerLogTimestamp(line);
+
+            ServerConsoleLines.Add(
+                ServerConsoleLine.FromText(displayLine));
         }
 
+        while (
+            ServerConsoleLines.Count >
+            MaximumServerConsoleLines)
+        {
+            ServerConsoleLines.RemoveAt(0);
+        }
+    }
+
+
+    private static string RemoveServerLogTimestamp(
+        string line)
+    {
+        // coop-server logs use a fixed-width prefix such as:
+        //     01:01:03.015  [DedicatedServer] ...
+        // Only strip it when the exact timestamp shape is present so ordinary
+        // server messages that happen to begin with digits are left untouched.
         if (
-            _serverReady ||
-            !_processManager.IsRunning ||
-            !chunk.Contains(
-                Settings.ReadyText,
-                StringComparison.OrdinalIgnoreCase))
+            line.Length <= 12 ||
+            line[2] != ':' ||
+            line[5] != ':' ||
+            line[8] != '.' ||
+            !char.IsDigit(line[0]) ||
+            !char.IsDigit(line[1]) ||
+            !char.IsDigit(line[3]) ||
+            !char.IsDigit(line[4]) ||
+            !char.IsDigit(line[6]) ||
+            !char.IsDigit(line[7]) ||
+            !char.IsDigit(line[9]) ||
+            !char.IsDigit(line[10]) ||
+            !char.IsDigit(line[11]) ||
+            !char.IsWhiteSpace(line[12]))
+        {
+            return line;
+        }
+
+        var contentStart = 12;
+
+        while (
+            contentStart < line.Length &&
+            char.IsWhiteSpace(line[contentStart]))
+        {
+            contentStart++;
+        }
+
+        return line[contentStart..];
+    }
+
+
+    private void ProcessDedicatedServerEvent(
+        string json)
+    {
+        try
+        {
+            using var document =
+                JsonDocument.Parse(json);
+
+            var root =
+                document.RootElement;
+
+            if (
+                !root.TryGetProperty(
+                    "ev",
+                    out var eventProperty) ||
+                eventProperty.ValueKind != JsonValueKind.String)
+            {
+                return;
+            }
+
+            var eventName =
+                eventProperty.GetString();
+
+            switch (eventName)
+            {
+                case "players":
+                    if (
+                        root.TryGetProperty(
+                            "list",
+                            out var players) &&
+                        _playerRosterTracker.ProcessPlayersList(
+                            players))
+                    {
+                        RefreshPlayerRoster();
+                    }
+                    break;
+
+                case "commands":
+                    UpdateAvailableCommands(
+                        root);
+                    break;
+
+                case "state":
+                    ProcessDedicatedServerStateEvent(
+                        root);
+                    break;
+            }
+        }
+        catch (JsonException)
+        {
+            // Ignore one malformed structured line. ServerLogMonitor emits only
+            // newline-terminated records, and the human log remains on disk.
+        }
+    }
+
+
+    private void ProcessDedicatedServerStateEvent(
+        JsonElement root)
+    {
+        if (
+            !root.TryGetProperty(
+                "phase",
+                out var phaseProperty) ||
+            phaseProperty.ValueKind != JsonValueKind.String)
         {
             return;
         }
 
-        _dispatcher.BeginInvoke(() =>
+        var phase =
+            phaseProperty.GetString();
+
+        SetReportedServerStatusFromLogPhase(
+            phase);
+
+        if (string.IsNullOrWhiteSpace(phase))
+            return;
+
+        if (
+            string.Equals(
+                phase,
+                "serving",
+                StringComparison.OrdinalIgnoreCase))
         {
-            if (_serverReady)
-                return;
+            MarkServerReadyFromLog();
+            return;
+        }
 
-            _serverReady = true;
-
-            ServerState = ServerState.Ready;
-            StatusMessage = "Server is online and ready.";
-
-            AddToolMessage(
-                $"SERVER READY detected: {Settings.ReadyText}");
-
-            RecalculateNextRestart();
-        });
-    }
-
-
-    private bool ConsumeUnexpectedServerFailureMarker(
-        string chunk,
-        out string failureReason)
-    {
-        failureReason =
-            "";
-
-        if (string.IsNullOrEmpty(chunk))
-            return false;
-
-        lock (_crashMarkerLock)
+        if (
+            string.Equals(
+                phase,
+                "fatal",
+                StringComparison.OrdinalIgnoreCase))
         {
-            var combined =
-                _crashMarkerTail + chunk;
-
-            if (
-                combined.Contains(
-                    FatalServerStateMarker,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                _crashMarkerTail =
-                    "";
-
-                failureReason =
-                    "Dedicated server reported a fatal state while the launcher may still be open.";
-
-                return true;
-            }
-
-            if (
-                combined.Contains(
-                    LauncherUnexpectedExitMarker,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                _crashMarkerTail =
-                    "";
-
-                failureReason =
-                    "Launcher reported that the hosted server exited unexpectedly.";
-
-                return true;
-            }
-
-            _crashMarkerTail =
-                KeepCrashMarkerTail(
-                    combined);
-
-            return false;
+            QueueCrashRecovery(
+                "Dedicated server reported a fatal state while the launcher may still be open.");
         }
     }
 
 
-    private static string KeepCrashMarkerTail(
-        string text)
+    private void MarkServerReadyFromLog()
     {
-        var maxTailLength =
-            Math.Max(
-                FatalServerStateMarker.Length,
-                LauncherUnexpectedExitMarker.Length) - 1;
+        if (
+            _serverReady ||
+            _applicationClosing ||
+            !_processManager.IsRunning)
+        {
+            return;
+        }
 
-        if (text.Length <= maxTailLength)
-            return text;
+        _serverReady = true;
 
-        return
-            text[^maxTailLength..];
+        ServerState = ServerState.Ready;
+        StatusMessage = "Server is online and ready.";
+
+        AddToolMessage(
+            $"SERVER READY detected: {Settings.ReadyText}");
+
+        RecalculateNextRestart();
     }
 
 
-    private void ResetCrashOutputDetection()
+    private void UpdateAvailableCommands(
+        JsonElement root)
     {
-        lock (_crashMarkerLock)
+        var commands =
+            new List<string>();
+
+        AddCommandArray(
+            root,
+            "builtin",
+            commands);
+
+        AddCommandArray(
+            root,
+            "game",
+            commands);
+
+        var normalized =
+            commands
+                .Where(
+                    command =>
+                        !string.IsNullOrWhiteSpace(command))
+                .Distinct(
+                    StringComparer.OrdinalIgnoreCase)
+                .OrderBy(
+                    command => command,
+                    StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+        if (_availableCommands.SequenceEqual(
+                normalized,
+                StringComparer.OrdinalIgnoreCase))
         {
-            _crashMarkerTail =
-                "";
+            return;
         }
 
+        _availableCommands.Clear();
+        _availableCommands.AddRange(
+            normalized);
+
+        AddToolMessage(
+            $"Command autocomplete loaded: {_availableCommands.Count} commands.");
+    }
+
+
+    private static void AddCommandArray(
+        JsonElement root,
+        string propertyName,
+        List<string> destination)
+    {
+        if (
+            !root.TryGetProperty(
+                propertyName,
+                out var array) ||
+            array.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+                continue;
+
+            var command =
+                item.GetString();
+
+            if (!string.IsNullOrWhiteSpace(command))
+            {
+                destination.Add(command);
+            }
+        }
+    }
+
+
+    private void SetReportedServerStatusFromLogPhase(
+        string? phase)
+    {
+        if (string.IsNullOrWhiteSpace(phase))
+            return;
+
+        var status =
+            phase.Trim().ToLowerInvariant() switch
+            {
+                "boot" => "Starting",
+                "loading" => "Loading campaign",
+                "serving" => "SERVING",
+                "stopping" => "Stopping",
+                _ => phase.Trim()
+            };
+
+        SetReportedServerStatus(
+            status);
+    }
+
+
+    private void ResetCrashRecoverySignal()
+    {
         Interlocked.Exchange(
             ref _crashRecoverySignalQueued,
             0);
@@ -1688,66 +1930,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     await HandleUnexpectedExitAsync(
                         reason);
                 }));
-    }
-
-
-    private bool ConsumeSuccessfulSaveMarker(
-        string chunk)
-    {
-        if (string.IsNullOrEmpty(chunk))
-            return false;
-
-        lock (_saveMarkerLock)
-        {
-            var combined =
-                _saveMarkerTail + chunk;
-
-            var markerIndex =
-                combined.IndexOf(
-                    SuccessfulSaveMarker,
-                    StringComparison.OrdinalIgnoreCase);
-
-            if (markerIndex >= 0)
-            {
-                // Keep only text after the LAST complete marker. That prevents
-                // the marker itself from surviving in the tail and being
-                // counted again on the next chunk.
-                var lastMarkerIndex =
-                    combined.LastIndexOf(
-                        SuccessfulSaveMarker,
-                        StringComparison.OrdinalIgnoreCase);
-
-                var afterMarker =
-                    combined[
-                        (lastMarkerIndex + SuccessfulSaveMarker.Length)..];
-
-                _saveMarkerTail =
-                    KeepSaveMarkerTail(
-                        afterMarker);
-
-                return true;
-            }
-
-            _saveMarkerTail =
-                KeepSaveMarkerTail(
-                    combined);
-
-            return false;
-        }
-    }
-
-
-    private static string KeepSaveMarkerTail(
-        string text)
-    {
-        var maxTailLength =
-            SuccessfulSaveMarker.Length - 1;
-
-        if (text.Length <= maxTailLength)
-            return text;
-
-        return
-            text[^maxTailLength..];
     }
 
 
@@ -1787,154 +1969,16 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
 
     /// <summary>
-    /// Handles a reconstructed two-dimensional ConPTY terminal screen.
-    ///
-    /// The native Players pane is parsed first. The left/log pane is then
-    /// rendered into TerminalText while the player pane is rendered in the
-    /// dedicated WPF Players panel.
-    /// </summary>
-    private void ProcessManager_TerminalScreenUpdated(
-        object? sender,
-        TerminalScreenUpdatedEventArgs e)
-    {
-        _dispatcher.BeginInvoke(() =>
-        {
-            // Render the COMPLETE ConPTY terminal. Bannerlord's own Players
-            // pane remains part of this screen.
-            var terminalLines =
-                e.Lines;
-
-            // Read Bannerlord's authoritative runtime status from the ORIGINAL
-            // native snapshot before display-only footer filtering removes it.
-            //
-            // Example native footer:
-            //
-            // F10 Stop | SERVING · save saveauto1 · port 4200 · players 0 ...
-            //
-            // "SERVING" remains hidden in the Server Console, but is surfaced
-            // in the top Server state field.
-            if (
-                TryExtractNativeFooterStatus(
-                    e.Snapshot,
-                    out var nativeStatus))
-            {
-                SetNativeServerStatus(
-                    nativeStatus);
-            }
-
-            // Bannerlord's normal full-screen frame has both labels in the
-            // top few terminal rows:
-            //
-            //     Log ... Players (N)
-            //
-            // During a terminal redraw those labels can briefly disappear
-            // between the "erase old frame" and "draw new frame" VT writes.
-            // Once a complete frame has been seen, keep the previous complete
-            // screen instead of exposing that intermediate frame to the user.
-            var hasCompleteHeader =
-                HasCompleteBannerlordTerminalHeader(
-                    terminalLines);
-
-            if (hasCompleteHeader)
-            {
-                _hasSeenCompleteTerminalHeader = true;
-            }
-            else if (
-                _hasSeenCompleteTerminalHeader &&
-                _processManager.IsRunning)
-            {
-                return;
-            }
-
-            // Preserve the terminal's row layout while removing trailing
-            // completely-empty rows from the WPF TextBox.
-            var lastNonEmpty =
-                terminalLines.Count - 1;
-
-            while (
-                lastNonEmpty >= 0 &&
-                string.IsNullOrWhiteSpace(
-                    terminalLines[lastNonEmpty]))
-            {
-                lastNonEmpty--;
-            }
-
-            if (lastNonEmpty < 0)
-            {
-                TerminalSnapshot =
-                    TerminalScreenSnapshot.Empty;
-                TerminalText = "";
-                return;
-            }
-
-            // Preserve Bannerlord's ANSI/VT styling, but hide a few native
-            // footer fields that are redundant or unusable inside BCS Tool.
-            //
-            // This is DISPLAY-ONLY filtering. Bannerlord's underlying ConPTY
-            // screen is not modified, so native input/autocomplete/history
-            // behavior remains untouched.
-            var displaySnapshot =
-                CreateDisplayTerminalSnapshot(
-                    e.Snapshot);
-
-            TerminalSnapshot =
-                displaySnapshot;
-
-            // Synchronize the separate WPF command box against the ORIGINAL
-            // native screen so footer filtering cannot affect prompt parsing
-            // or terminal cursor synchronization.
-            SynchronizeCommandInputFromTerminal(
-                e.Snapshot);
-
-            // Keep a plain-text copy of exactly what BCS Tool displays.
-            var displayLines =
-                displaySnapshot.PlainLines;
-
-            var displayLastNonEmpty =
-                displayLines.Count - 1;
-
-            while (
-                displayLastNonEmpty >= 0 &&
-                string.IsNullOrWhiteSpace(
-                    displayLines[displayLastNonEmpty]))
-            {
-                displayLastNonEmpty--;
-            }
-
-            TerminalText =
-                displayLastNonEmpty < 0
-                    ? ""
-                    : string.Join(
-                        Environment.NewLine,
-                        displayLines.Take(
-                            displayLastNonEmpty + 1));
-        });
-    }
-
-
-    // Bannerlord's native footer currently resembles:
-    //
-    // F10 Stop | SERVING · save saveauto1 · port 4200 · players 0 · up 0:02:58
-    //
-    // The native runtime state ("SERVING" in this example) is parsed from the
-    // ORIGINAL snapshot and shown in BCS Tool's top Server state field.
-    //
-    // The embedded Server Console still hides the native status and displays:
-    //
-    // | save saveauto1 · port 4200 · players 0
-    //
-    // Footer filtering is display-only and does not alter ConPTY state.
-    /// <summary>
-    /// Updates the display-only native server status and refreshes the bound
+    /// Updates the display-only server-reported status and refreshes the bound
     /// ServerStateText property only when the text actually changes.
     /// </summary>
-    private void SetNativeServerStatus(
+    private void SetReportedServerStatus(
         string status)
     {
         status =
             status.Trim();
 
-        // Bannerlord can report descriptive native states with a lowercase
+        // Bannerlord can report descriptive states with a lowercase
         // first letter, such as "loading campaign". Match BCS Tool's other
         // state labels by capitalizing only that first character.
         //
@@ -1953,649 +1997,20 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         if (
             string.Equals(
-                _nativeServerStatus,
+                _reportedServerStatus,
                 status,
                 StringComparison.Ordinal))
         {
             return;
         }
 
-        _nativeServerStatus =
+        _reportedServerStatus =
             status;
 
         OnPropertyChanged(
             nameof(ServerStateText));
     }
 
-
-    /// <summary>
-    /// Finds Bannerlord's native footer near the bottom of the ORIGINAL ConPTY
-    /// snapshot and extracts the status between the F10 control field and the
-    /// first normal data field ("save ...").
-    ///
-    /// Example:
-    ///
-    /// F10 Stop | SERVING · save saveauto1 · port 4200 ...
-    ///            ^^^^^^^
-    ///
-    /// No specific status word is hardcoded. If Bannerlord changes SERVING to
-    /// another detailed runtime state, that new text is surfaced automatically.
-    /// </summary>
-    private static bool TryExtractNativeFooterStatus(
-        TerminalScreenSnapshot snapshot,
-        out string status)
-    {
-        status = "";
-
-        if (snapshot.Lines.Count == 0)
-            return false;
-
-        var firstRow =
-            Math.Max(
-                0,
-                snapshot.Lines.Count - 8);
-
-        for (
-            var row = snapshot.Lines.Count - 1;
-            row >= firstRow;
-            row--)
-        {
-            var plain =
-                snapshot.Lines[row].PlainText;
-
-            if (
-                TryParseNativeFooter(
-                    plain,
-                    out status,
-                    out _))
-            {
-                return true;
-            }
-        }
-
-        status = "";
-        return false;
-    }
-
-
-    /// <summary>
-    /// Parses the semantic pieces needed from Bannerlord's native footer.
-    ///
-    /// The parser intentionally does not depend on SERVING being the status.
-    /// It validates the row through the F10/save/port fields, then treats the
-    /// text between the F10 action and the save field as the native state.
-    /// </summary>
-    private static bool TryParseNativeFooter(
-        string plain,
-        out string status,
-        out int saveIndex)
-    {
-        status = "";
-        saveIndex = -1;
-
-        if (string.IsNullOrWhiteSpace(plain))
-            return false;
-
-        saveIndex =
-            plain.IndexOf(
-                "save ",
-                StringComparison.OrdinalIgnoreCase);
-
-        var portIndex =
-            plain.IndexOf(
-                "port ",
-                StringComparison.OrdinalIgnoreCase);
-
-        var f10Index =
-            plain.IndexOf(
-                "F10",
-                StringComparison.OrdinalIgnoreCase);
-
-        if (
-            f10Index < 0 ||
-            saveIndex < 0 ||
-            portIndex < 0 ||
-            portIndex <= saveIndex ||
-            saveIndex <= f10Index)
-        {
-            saveIndex = -1;
-            return false;
-        }
-
-        // Prefer the explicit "|" divider after "F10 Stop". If Bannerlord
-        // changes that glyph, fall back to the text after the word "Stop".
-        var statusStart =
-            plain.IndexOf(
-                '|',
-                f10Index);
-
-        if (
-            statusStart >= 0 &&
-            statusStart < saveIndex)
-        {
-            statusStart++;
-        }
-        else
-        {
-            var stopIndex =
-                plain.IndexOf(
-                    "Stop",
-                    f10Index,
-                    StringComparison.OrdinalIgnoreCase);
-
-            statusStart =
-                stopIndex >= 0 &&
-                stopIndex < saveIndex
-                    ? stopIndex + "Stop".Length
-                    : f10Index + "F10".Length;
-        }
-
-        if (
-            statusStart < 0 ||
-            statusStart >= saveIndex)
-        {
-            return false;
-        }
-
-        var statusSegment =
-            plain[
-                statusStart..
-                saveIndex];
-
-        status =
-            TrimFooterSeparators(
-                statusSegment);
-
-        // The native footer occasionally uses a box-drawing/broken/fullwidth
-        // vertical bar that visually resembles "|". Never expose those
-        // decorative separators as part of the Server state.
-        status =
-            new string(
-                status
-                    .Where(
-                        ch =>
-                            !IsVerticalFooterBar(
-                                ch))
-                    .ToArray())
-                .Trim();
-
-        return
-            !string.IsNullOrWhiteSpace(
-                status);
-    }
-
-
-    /// <summary>
-    /// Removes footer punctuation from both ends of a semantic field while
-    /// preserving spaces/punctuation inside a multi-word native status.
-    /// </summary>
-    private static string TrimFooterSeparators(
-        string text)
-    {
-        var start = 0;
-        var end = text.Length;
-
-        while (
-            start < end &&
-            IsFooterSeparatorCharacter(
-                text[start]))
-        {
-            start++;
-        }
-
-        while (
-            end > start &&
-            IsFooterSeparatorCharacter(
-                text[end - 1]))
-        {
-            end--;
-        }
-
-        return
-            text[start..end]
-                .Trim();
-    }
-
-
-    /// <summary>
-    /// Creates the terminal snapshot shown to the user.
-    ///
-    /// Only the displayed snapshot is changed. The original ConPTY snapshot
-    /// remains authoritative for prompt synchronization, autocomplete,
-    /// history, cursor tracking, and native server-state extraction.
-    /// </summary>
-    private static TerminalScreenSnapshot CreateDisplayTerminalSnapshot(
-        TerminalScreenSnapshot source)
-    {
-        if (source.Lines.Count == 0)
-            return source;
-
-        var lines =
-            source.Lines.ToArray();
-
-        var firstRow =
-            Math.Max(
-                0,
-                lines.Length - 8);
-
-        for (
-            var row = lines.Length - 1;
-            row >= firstRow;
-            row--)
-        {
-            var plain =
-                lines[row].PlainText;
-
-            if (string.IsNullOrWhiteSpace(plain))
-                continue;
-
-            // Identify the native footer through the same generic parser
-            // used for Server state extraction. The status itself remains
-            // hidden because the visible row begins at "save ...".
-            if (
-                !TryParseNativeFooter(
-                    plain,
-                    out _,
-                    out var saveIndex))
-            {
-                continue;
-            }
-
-            lines[row] =
-                SliceNativeFooterLine(
-                    lines[row],
-                    saveIndex);
-
-            break;
-        }
-
-        return
-            new TerminalScreenSnapshot(
-                lines,
-                source.CursorRow,
-                source.CursorColumn);
-    }
-
-
-    /// <summary>
-    /// Keeps the styled row starting at `save ...` and ending before the final
-    /// native uptime field (`up H:MM:SS`).
-    /// </summary>
-    private static TerminalStyledLine SliceNativeFooterLine(
-        TerminalStyledLine line,
-        int saveIndex)
-    {
-        var styledCharacters =
-            new List<(char Character, TerminalCellStyle Style)>();
-
-        foreach (var run in line.Runs)
-        {
-            foreach (var ch in run.Text)
-            {
-                styledCharacters.Add(
-                    (ch, run.Style));
-            }
-        }
-
-        if (
-            saveIndex < 0 ||
-            saveIndex >= styledCharacters.Count)
-        {
-            return line;
-        }
-
-        var uptimeIndex =
-            FindNativeUptimeFieldStart(
-                line.PlainText,
-                saveIndex);
-
-        var endExclusive =
-            uptimeIndex >= 0
-                ? uptimeIndex
-                : styledCharacters.Count;
-
-        // Remove punctuation/spacing immediately before the uptime field.
-        while (
-            endExclusive > saveIndex &&
-            IsFooterSeparatorCharacter(
-                styledCharacters[endExclusive - 1].Character))
-        {
-            endExclusive--;
-        }
-
-        var kept =
-            styledCharacters
-                .Skip(saveIndex)
-                .Take(
-                    Math.Max(
-                        0,
-                        endExclusive - saveIndex))
-                .ToList();
-
-        while (
-            kept.Count > 0 &&
-            char.IsWhiteSpace(
-                kept[0].Character))
-        {
-            kept.RemoveAt(0);
-        }
-
-        while (
-            kept.Count > 0 &&
-            IsFooterSeparatorCharacter(
-                kept[^1].Character))
-        {
-            kept.RemoveAt(
-                kept.Count - 1);
-        }
-
-        if (kept.Count == 0)
-        {
-            return
-                new TerminalStyledLine(
-                    "",
-                    Array.Empty<TerminalTextRun>());
-        }
-
-        // Keep the native status itself hidden, but restore a simple divider
-        // before the remaining footer fields:
-        //
-        //     | save saveauto1 · port 4200 · players 0
-        //
-        // Using the first visible field's style keeps the divider visually
-        // consistent without exposing the hidden F10/status cells.
-        var footerStyle =
-            kept[0].Style;
-
-        kept.Insert(
-            0,
-            (' ', footerStyle));
-
-        kept.Insert(
-            0,
-            ('|', footerStyle));
-
-        var runs =
-            new List<TerminalTextRun>();
-
-        var runText =
-            new System.Text.StringBuilder();
-
-        var runStyle =
-            kept[0].Style;
-
-        foreach (var item in kept)
-        {
-            if (
-                runText.Length > 0 &&
-                item.Style != runStyle)
-            {
-                runs.Add(
-                    new TerminalTextRun(
-                        runText.ToString(),
-                        runStyle));
-
-                runText.Clear();
-                runStyle =
-                    item.Style;
-            }
-
-            runText.Append(
-                item.Character);
-        }
-
-        if (runText.Length > 0)
-        {
-            runs.Add(
-                new TerminalTextRun(
-                    runText.ToString(),
-                    runStyle));
-        }
-
-        var filteredPlain =
-            new string(
-                kept
-                    .Select(item => item.Character)
-                    .ToArray());
-
-        return
-            new TerminalStyledLine(
-                filteredPlain,
-                runs);
-    }
-
-
-    /// <summary>
-    /// Finds a trailing uptime field shaped like `up 0:02:58`.
-    /// </summary>
-    private static int FindNativeUptimeFieldStart(
-        string text,
-        int searchFrom)
-    {
-        var searchIndex =
-            text.Length;
-
-        while (searchIndex > searchFrom)
-        {
-            var candidate =
-                text.LastIndexOf(
-                    "up ",
-                    searchIndex - 1,
-                    StringComparison.OrdinalIgnoreCase);
-
-            if (candidate < searchFrom)
-                return -1;
-
-            var value =
-                text[(candidate + 3)..]
-                    .Trim();
-
-            if (
-                TimeSpan.TryParse(
-                    value,
-                    out _))
-            {
-                return candidate;
-            }
-
-            searchIndex =
-                candidate;
-        }
-
-        return -1;
-    }
-
-
-    private static bool IsFooterSeparatorCharacter(char ch)
-    {
-        return
-            char.IsWhiteSpace(ch) ||
-            IsVerticalFooterBar(ch) ||
-            ch == '·' ||
-            ch == '•' ||
-            ch == '∙' ||
-            ch == '⋅' ||
-            ch == '-' ||
-            ch == '—' ||
-            ch == '–' ||
-            ch == 'â';
-    }
-
-
-    /// <summary>
-    /// Bannerlord/terminal fonts may use several visually similar vertical
-    /// separators. Treat all of them as footer punctuation so none leak into
-    /// the Server state text.
-    /// </summary>
-    private static bool IsVerticalFooterBar(char ch)
-    {
-        return
-            ch == '|' ||   // ASCII vertical line
-            ch == '│' ||   // box drawings light vertical
-            ch == '┃' ||   // box drawings heavy vertical
-            ch == '¦' ||   // broken bar
-            ch == '｜';    // fullwidth vertical line
-    }
-
-
-    /// <summary>
-    /// Finds Bannerlord's native prompt near the bottom of the terminal:
-    ///
-    ///     > st
-    ///
-    /// and mirrors its content/cursor into the WPF command input.
-    ///
-    /// Bannerlord remains authoritative. If Tab changes `st` to `status`, the
-    /// next complete terminal snapshot changes CommandText to `status`.
-    /// </summary>
-    private void SynchronizeCommandInputFromTerminal(
-        TerminalScreenSnapshot snapshot)
-    {
-        var lines =
-            snapshot.Lines;
-
-        if (lines.Count == 0)
-            return;
-
-        // The prompt is normally directly above the F10/status footer. Search
-        // only the lower portion of the screen to avoid interpreting a log
-        // line that happens to contain a `>` character.
-        var firstRow =
-            Math.Max(
-                0,
-                lines.Count - 12);
-
-        for (
-            var row = lines.Count - 1;
-            row >= firstRow;
-            row--)
-        {
-            var line =
-                lines[row].PlainText;
-
-            if (string.IsNullOrEmpty(line))
-                continue;
-
-            var promptColumn = 0;
-
-            while (
-                promptColumn < line.Length &&
-                char.IsWhiteSpace(
-                    line[promptColumn]))
-            {
-                promptColumn++;
-            }
-
-            if (
-                promptColumn >= line.Length ||
-                line[promptColumn] != '>')
-            {
-                continue;
-            }
-
-            var inputStart =
-                promptColumn + 1;
-
-            // Native console normally renders "> command". Do not require the
-            // space so this keeps working if its prompt style changes slightly.
-            if (
-                inputStart < line.Length &&
-                line[inputStart] == ' ')
-            {
-                inputStart++;
-            }
-
-            // Terminal rows contain blank padding to the right edge of the
-            // screen, so we cannot simply keep every trailing space. At the
-            // same time, TrimEnd() is too aggressive because a space the user
-            // just typed at the native prompt is meaningful even when it is
-            // currently the last character.
-            //
-            // Keep content through the final non-whitespace cell, and when the
-            // native cursor is on this prompt row, also keep cells through the
-            // cursor position. This preserves typed trailing spaces while still
-            // discarding unused terminal-row padding.
-            var commandEnd =
-                line.TrimEnd().Length;
-
-            if (snapshot.CursorRow == row)
-            {
-                commandEnd =
-                    Math.Max(
-                        commandEnd,
-                        snapshot.CursorColumn);
-            }
-
-            commandEnd =
-                Math.Clamp(
-                    commandEnd,
-                    inputStart,
-                    line.Length);
-
-            var command =
-                inputStart < commandEnd
-                    ? line[inputStart..commandEnd]
-                    : "";
-
-            CommandText =
-                command;
-
-            var caret =
-                command.Length;
-
-            if (snapshot.CursorRow == row)
-            {
-                caret =
-                    Math.Clamp(
-                        snapshot.CursorColumn - inputStart,
-                        0,
-                        command.Length);
-            }
-
-            CommandCaretIndex =
-                caret;
-
-            return;
-        }
-    }
-
-
-    /// <summary>
-    /// Detects Bannerlord Coop's native complete top frame.
-    ///
-    /// We intentionally only inspect the first few terminal rows so ordinary
-    /// log text containing the words "Log" or "Players" cannot satisfy it.
-    /// </summary>
-    private static bool HasCompleteBannerlordTerminalHeader(
-        IReadOnlyList<string> terminalLines)
-    {
-        var rowsToInspect =
-            Math.Min(
-                6,
-                terminalLines.Count);
-
-        for (
-            var row = 0;
-            row < rowsToInspect;
-            row++)
-        {
-            var line =
-                terminalLines[row];
-
-            if (
-                line.Contains(
-                    "Log",
-                    StringComparison.OrdinalIgnoreCase) &&
-                line.Contains(
-                    "Players (",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
 
     private void ProcessManager_UnexpectedExit(
@@ -2612,8 +2027,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
     ///
     /// Recovery can be triggered by either:
     ///   - the managed launcher process actually exiting, or
-    ///   - terminal output proving that the hosted game server died while the
-    ///     launcher/console itself remained open.
+    ///   - the dedicated-server log proving that the hosted game server died
+    ///     while the launcher process itself remained open.
     ///
     /// Recovery:
     ///   mark crashed
@@ -2662,7 +2077,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _processManager.ForceCleanupManagedTree();
 
             // The old crash path was entered only after Process.Exited, so it
-            // never had to wait for the root launcher. Terminal-marker recovery
+            // never had to wait for the root launcher. Log-marker recovery
             // can arrive while that launcher is still alive. Starting before
             // it actually exits can make StartServerAsync silently return or
             // trip duplicate-process protection.
@@ -2701,51 +2116,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 return;
             }
 
-            // Freeze the newest complete retained backup as a dedicated
-            // crash recovery point. This NEVER changes the active save:
-            // Bannerlord still restarts from the current configured save pair.
-            //
-            // Capture it even when automatic restart is disabled, because the
-            // manual recovery point is still useful after any detected crash.
-            StatusMessage =
-                "Creating crash backup from newest retained save...";
-
-            try
-            {
-                var crashBackup =
-                    await _saveBackupService.CreateCrashBackupFromNewestBackupAsync(
-                        _lifetimeCts.Token);
-
-                if (crashBackup is null)
-                {
-                    AddToolMessage(
-                        "No complete retained save backup is available for a crash snapshot. " +
-                        "The current active save was left unchanged.");
-                }
-                else
-                {
-                    AddToolMessage(
-                        $"Crash backup created from {crashBackup.SourceBackupName}: " +
-                        $"{Path.GetFileName(crashBackup.SavPath)} + " +
-                        $"{Path.GetFileName(crashBackup.JsonPath)}.");
-
-                    AddToolMessage(
-                        "The active save was not rolled back. If it later proves corrupted, " +
-                        $"stop the server and load {crashBackup.CrashBackupName} manually.");
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Snapshot failure must not replace or block the current save.
-                AddToolMessage(
-                    $"Warning: crash backup could not be created: {ex.Message}");
-                AddToolMessage(
-                    "The current active save was left unchanged.");
-            }
+            await CreateCrashBackupAfterFailureAsync();
 
             if (!Settings.AutoRestartOnCrash)
             {
@@ -2798,6 +2169,53 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _crashRecoveryRunning = false;
         }
     }
+
+    /// <summary>
+    /// Freezes the newest retained backup as a manual recovery point after a
+    /// crash. Failure to create the snapshot never blocks normal crash restart.
+    /// </summary>
+    private async Task CreateCrashBackupAfterFailureAsync()
+    {
+        StatusMessage =
+            "Creating crash backup from newest retained save...";
+
+        try
+        {
+            var crashBackup =
+                await _saveBackupService.CreateCrashBackupFromNewestBackupAsync(
+                    _lifetimeCts.Token);
+
+            if (crashBackup is null)
+            {
+                AddToolMessage(
+                    "No complete retained save backup is available for a crash snapshot. " +
+                    "The current active save was left unchanged.");
+                return;
+            }
+
+            AddToolMessage(
+                $"Crash backup created from {crashBackup.SourceBackupName}: " +
+                $"{Path.GetFileName(crashBackup.SavPath)} + " +
+                $"{Path.GetFileName(crashBackup.JsonPath)}.");
+
+            AddToolMessage(
+                "The active save was not rolled back. If it later proves corrupted, " +
+                $"stop the server and load {crashBackup.CrashBackupName} manually.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Snapshot failure must not replace or block the current save.
+            AddToolMessage(
+                $"Warning: crash backup could not be created: {ex.Message}");
+            AddToolMessage(
+                "The current active save was left unchanged.");
+        }
+    }
+
 
     /// <summary>
     /// Background scheduler loop.
@@ -2977,7 +2395,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
     /// <summary>
     /// Called when the user closes BCS Tool while the server is still running.
-    /// Attempts a final save + graceful stop before the application exits.
+    /// Uses the native graceful stop command, which saves the world before exit.
     /// </summary>
     public async Task<bool> PrepareForApplicationExitAsync()
     {
@@ -2991,7 +2409,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         try
         {
-            return await StopServerWhileLockedAsync(saveFirst: true);
+            return await StopServerWhileLockedAsync();
         }
         catch (OperationCanceledException)
         {
@@ -3022,11 +2440,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
         {
         }
 
-        _processManager.OutputReceived -= ProcessManager_OutputReceived;
-        _processManager.TerminalScreenUpdated -=
-            ProcessManager_TerminalScreenUpdated;
         _processManager.UnexpectedExit -= ProcessManager_UnexpectedExit;
+        _serverLogMonitor.LinesReceived -= ServerLogMonitor_LinesReceived;
 
+        _serverLogMonitor.Dispose();
         _processManager.Dispose();
         _operationLock.Dispose();
         _lifetimeCts.Dispose();

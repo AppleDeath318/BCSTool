@@ -45,6 +45,10 @@ jobs:
               throw "Release tag '$actualTag' does not match project version '$projectVersion'. Expected '$expectedTag'."
           }
 
+          $releaseExeName = "BCS Tool v$projectVersion.exe"
+          "RELEASE_EXE_NAME=$releaseExeName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Release file:    $releaseExeName"
+
       - name: Publish BCS Tool
         shell: pwsh
         run: |
@@ -53,7 +57,7 @@ jobs:
       - name: Verify release executable
         shell: pwsh
         run: |
-          $exe = ".\BCSTool\publish\BCS Tool.exe"
+          $exe = ".\BCSTool\publish\$env:RELEASE_EXE_NAME"
 
           if (-not (Test-Path $exe)) {
               throw "Expected release executable was not produced: $exe"
@@ -65,11 +69,11 @@ jobs:
       - name: Generate SHA-256 checksum
         shell: pwsh
         run: |
-          $exe = ".\BCSTool\publish\BCS Tool.exe"
+          $exe = ".\BCSTool\publish\$env:RELEASE_EXE_NAME"
           $checksumFile = "$exe.sha256"
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
 
-          "$hash  BCS Tool.exe" |
+          "$hash  $env:RELEASE_EXE_NAME" |
               Set-Content -Path $checksumFile -Encoding ascii
 
           Write-Host "SHA-256:"
@@ -81,8 +85,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" `
-            ".\BCSTool\publish\BCS Tool.exe" `
-            ".\BCSTool\publish\BCS Tool.exe.sha256" `
+            ".\BCSTool\publish\$env:RELEASE_EXE_NAME" `
+            ".\BCSTool\publish\$env:RELEASE_EXE_NAME.sha256" `
             --verify-tag `
             --generate-notes `
             --title "BCS Tool ${{ github.ref_name }}"

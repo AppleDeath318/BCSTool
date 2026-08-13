@@ -8,10 +8,7 @@ namespace BCSTool.Services;
 ///
 /// Logs are intentionally kept separate from the visible server console.
 /// They are stored under the current Windows user's LocalAppData folder:
-///     %LOCALAPPDATA%\BCSServerTool\Logs
-///
-/// The legacy folder name is intentionally retained so existing diagnostic
-/// history remains in one place after the project/namespace rename.
+///     %LOCALAPPDATA%\BCS Tool\Logs
 ///
 /// A different file is used each day.
 /// </summary>
@@ -25,7 +22,7 @@ public sealed class LogService
     {
         LogDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "BCSServerTool",
+            "BCS Tool",
             "Logs");
 
         Directory.CreateDirectory(LogDirectory);

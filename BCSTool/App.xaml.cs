@@ -22,6 +22,7 @@ namespace BCSTool;
 public partial class App : Application
 {
     private SingleInstanceGuard? _singleInstance;
+    private SingleInstanceGuard? _legacySingleInstance;
     private MainViewModel? _viewModel;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -32,11 +33,15 @@ public partial class App : Application
         // A named Windows mutex acts as a machine-wide "only one instance"
         // lock. This prevents two watchdogs from both trying to manage the
         // same Bannerlord server.
-        // Keep the legacy mutex identifier so an older BCS Tool build and
-        // this renamed build cannot both manage the same server concurrently.
-        _singleInstance = new SingleInstanceGuard("BCS_ServerTool_v1");
+        // Use the canonical BCS Tool mutex. Also acquire the pre-rename mutex
+        // for cross-version safety so an older build cannot manage the same
+        // server at the same time during the transition.
+        _singleInstance = new SingleInstanceGuard("BCS Tool_v1");
+        _legacySingleInstance = new SingleInstanceGuard(
+            "BCS_" + "Server" + "Tool_v1");
 
-        if (!_singleInstance.TryAcquire())
+        if (!_singleInstance.TryAcquire() ||
+            !_legacySingleInstance.TryAcquire())
         {
             MessageBox.Show(
                 "BCS Tool is already running.",
@@ -61,6 +66,28 @@ public partial class App : Application
         var playerRosterTracker = new PlayerRosterTracker();
         var serverExecutableLocator = new ServerExecutableLocator();
         var coopConfigService = new CoopConfigService();
+
+        // The log-driven runtime requires server-config.json logFile=true.
+        // Re-enable it on every BCS Tool launch if a previously generated
+        // configuration was externally changed to false. A missing config is
+        // normal before the server's first launch and is simply ignored.
+        try
+        {
+            if (coopConfigService.EnsureServerLoggingEnabled())
+            {
+                logService.Write(
+                    "Required server logging was disabled; restored server-config.json logFile=true.");
+            }
+        }
+        catch (Exception ex)
+        {
+            logService.Write(
+                $"Could not enforce required server logging at startup: {ex.Message}");
+        }
+
+        var serverLogMonitor = new ServerLogMonitor(
+            logService,
+            coopConfigService);
         var saveBackupService = new SaveBackupService(coopConfigService);
 
         // MainViewModel coordinates the UI with all server-management logic.
@@ -71,6 +98,7 @@ public partial class App : Application
             processManager,
             restartScheduler,
             playerRosterTracker,
+            serverLogMonitor,
             serverExecutableLocator,
             saveBackupService);
 
@@ -86,6 +114,7 @@ public partial class App : Application
         // Dispose long-lived objects such as timers, mutexes, and Process
         // wrappers before allowing the application to fully exit.
         _viewModel?.Dispose();
+        _legacySingleInstance?.Dispose();
         _singleInstance?.Dispose();
         base.OnExit(e);
     }

@@ -34,6 +34,7 @@ namespace BCSTool.Services;
 /// </summary>
 public sealed class SaveBackupService
 {
+    public const int CrashBackupGeneration = 0;
     public const int MinimumBackupCount = 1;
     public const int MaximumBackupCount = 5;
 
@@ -85,18 +86,13 @@ public sealed class SaveBackupService
             BackupDirectory,
             "Crash Backups");
 
-    // The existing restore UI passes SaveBackupInfo.Generation back to
-    // RestoreBackupAsync. Generation 0 is reserved for the dedicated crash
-    // snapshot; normal rotating generations remain 1..5.
-    public const int CrashBackupGeneration = 0;
-
     /// <summary>
     /// Creates one new paired rotation after Bannerlord reports a successful
     /// save.
     ///
     /// Returns the newest backup pair when a generation is created. Returns
     /// null when BOTH active files are unchanged from backup #1, which also
-    /// prevents duplicate ConPTY redraws from creating duplicate rotations.
+    /// prevents duplicate save-completion notifications from creating duplicate rotations.
     /// </summary>
     public async Task<SaveBackupResult?> CreateBackupAsync(
         int retentionCount,
@@ -134,7 +130,7 @@ public sealed class SaveBackupService
                     activePair.BaseName,
                     1);
 
-            // The ConPTY terminal can repaint old text. Only skip when BOTH
+            // Duplicate completion notifications can arrive close together. Only skip when BOTH
             // halves of the current save pair match backup generation #1.
             if (
                 BackupPairExists(newestBackupPair) &&
@@ -279,26 +275,11 @@ public sealed class SaveBackupService
                 if (!BackupPairExists(pair))
                     continue;
 
-                var savInfo =
-                    new FileInfo(
-                        pair.SavPath);
-
-                var jsonInfo =
-                    new FileInfo(
-                        pair.JsonPath);
-
-                var modifiedUtc =
-                    savInfo.LastWriteTimeUtc >= jsonInfo.LastWriteTimeUtc
-                        ? savInfo.LastWriteTimeUtc
-                        : jsonInfo.LastWriteTimeUtc;
-
                 results.Add(
-                    new SaveBackupInfo(
+                    CreateBackupInfo(
+                        pair,
                         generation,
-                        $"{activePair.BaseName}.backup{generation}",
-                        modifiedUtc.ToLocalTime(),
-                        pair.SavPath,
-                        pair.JsonPath));
+                        $"{activePair.BaseName}.backup{generation}"));
             }
 
             // The frozen crash snapshot is deliberately listed alongside the
@@ -310,27 +291,12 @@ public sealed class SaveBackupService
 
             if (BackupPairExists(crashBackup))
             {
-                var crashSavInfo =
-                    new FileInfo(
-                        crashBackup.SavPath);
-
-                var crashJsonInfo =
-                    new FileInfo(
-                        crashBackup.JsonPath);
-
-                var crashModifiedUtc =
-                    crashSavInfo.LastWriteTimeUtc >= crashJsonInfo.LastWriteTimeUtc
-                        ? crashSavInfo.LastWriteTimeUtc
-                        : crashJsonInfo.LastWriteTimeUtc;
-
                 results.Insert(
                     0,
-                    new SaveBackupInfo(
+                    CreateBackupInfo(
+                        crashBackup,
                         CrashBackupGeneration,
-                        $"{activePair.BaseName}.crashbackup",
-                        crashModifiedUtc.ToLocalTime(),
-                        crashBackup.SavPath,
-                        crashBackup.JsonPath));
+                        $"{activePair.BaseName}.crashbackup"));
             }
 
             return
@@ -439,38 +405,14 @@ public sealed class SaveBackupService
             RemoveIncompleteBackupPairs(
                 activePair.BaseName);
 
-            SaveFilePair? newestCompleteBackup =
-                null;
-
-            var generation =
-                0;
-
-            for (
-                var index = MinimumBackupCount;
-                index <= MaximumBackupCount;
-                index++)
-            {
-                var candidate =
-                    GetBackupPair(
-                        activePair.BaseName,
-                        index);
-
-                if (!BackupPairExists(candidate))
-                    continue;
-
-                newestCompleteBackup =
-                    candidate;
-
-                generation =
-                    index;
-
-                break;
-            }
+            var newestCompleteBackup =
+                FindNewestCompleteBackup(
+                    activePair.BaseName);
 
             if (newestCompleteBackup is null)
                 return null;
 
-            var sourceBackup =
+            var (generation, sourceBackup) =
                 newestCompleteBackup.Value;
 
             ValidateBackupPairForRestore(
@@ -718,6 +660,53 @@ public sealed class SaveBackupService
     }
 
 
+    private static SaveBackupInfo CreateBackupInfo(
+        SaveFilePair pair,
+        int generation,
+        string name)
+    {
+        var savModifiedUtc =
+            File.GetLastWriteTimeUtc(
+                pair.SavPath);
+
+        var jsonModifiedUtc =
+            File.GetLastWriteTimeUtc(
+                pair.JsonPath);
+
+        var modifiedUtc =
+            savModifiedUtc >= jsonModifiedUtc
+                ? savModifiedUtc
+                : jsonModifiedUtc;
+
+        return
+            new SaveBackupInfo(
+                generation,
+                name,
+                modifiedUtc.ToLocalTime(),
+                pair.SavPath,
+                pair.JsonPath);
+    }
+
+
+    private (int Generation, SaveFilePair Pair)? FindNewestCompleteBackup(
+        string baseName)
+    {
+        for (
+            var generation = MinimumBackupCount;
+            generation <= MaximumBackupCount;
+            generation++)
+        {
+            var pair =
+                GetBackupPair(
+                    baseName,
+                    generation);
+
+            if (BackupPairExists(pair))
+                return (generation, pair);
+        }
+
+        return null;
+    }
 
 
     private ActiveSavePair ResolveActiveSavePair()

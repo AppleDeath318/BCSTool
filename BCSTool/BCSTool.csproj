@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    BCSServerTool.csproj tells the .NET SDK how to build the application.
+    BCSTool.csproj tells the .NET SDK how to build the application.
 
     Important settings:
       OutputType=WinExe       => Windows GUI application
@@ -22,7 +22,7 @@
     <Product>BCS Tool</Product>
     <Description>Bannerlord Coop Server management tool</Description>
     <RootNamespace>BCSTool</RootNamespace>
-	<Version>0.2.1</Version>
+	<Version>0.2.3</Version>
 	<PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>
 </Project>
