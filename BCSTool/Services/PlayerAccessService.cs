@@ -15,8 +15,9 @@ namespace BCSTool.Services;
 ///
 /// SteamID64 is the authority. HeroId and character name are metadata used to
 /// explain and accelerate identity resolution; runtime enforcement is performed
-/// only after the current server session confirms the HeroId -> SteamID mapping
-/// from the active save and HeroId -> name mapping from coop.debug.hero.list.
+/// only after the active save confirms the current HeroId -> SteamID mapping.
+/// The HeroId -> name evidence comes from the live hero list or from a cached
+/// name whose HeroId/SteamID pair is revalidated against that active save.
 /// </summary>
 public sealed class PlayerAccessService
 {
@@ -84,16 +85,18 @@ public sealed class PlayerAccessService
     public Task SaveIdentityCacheAsync(IEnumerable<PlayerIdentityEntry> entries) =>
         SaveEntriesAsync(IdentityCachePath, NormalizeIdentityEntries(entries));
 
-    public async Task UpsertIdentityAsync(
-        string steamId,
-        string heroId,
-        string characterName)
+    /// <summary>
+    /// Merges resolved identities into the persistent cache with one atomic
+    /// write. Unchanged entries do not rewrite the file.
+    /// </summary>
+    public async Task UpsertIdentitiesAsync(
+        IEnumerable<PlayerIdentityEntry> identities)
     {
-        if (!IsValidSteamId64(steamId) ||
-            string.IsNullOrWhiteSpace(heroId))
-        {
+        var incoming =
+            NormalizeIdentityEntries(identities);
+
+        if (incoming.Count == 0)
             return;
-        }
 
         await _fileLock.WaitAsync();
 
@@ -103,29 +106,47 @@ public sealed class PlayerAccessService
                 await LoadEntriesWithoutLockAsync<PlayerIdentityEntry>(
                     IdentityCachePath);
 
-            var existing =
-                entries.FirstOrDefault(
-                    entry =>
-                        string.Equals(
-                            entry.SteamId,
-                            steamId,
-                            StringComparison.Ordinal));
+            var changed =
+                false;
 
-            if (existing is null)
+            foreach (var identity in incoming)
             {
-                entries.Add(
-                    new PlayerIdentityEntry
-                    {
-                        SteamId = steamId,
-                        HeroId = heroId.Trim(),
-                        LastKnownCharacterName = characterName.Trim()
-                    });
+                var existing =
+                    entries.FirstOrDefault(
+                        entry =>
+                            string.Equals(
+                                entry.SteamId,
+                                identity.SteamId,
+                                StringComparison.Ordinal));
+
+                if (existing is null)
+                {
+                    entries.Add(identity);
+                    changed = true;
+                    continue;
+                }
+
+                if (
+                    string.Equals(
+                        existing.HeroId,
+                        identity.HeroId,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(
+                        existing.LastKnownCharacterName,
+                        identity.LastKnownCharacterName,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                existing.HeroId = identity.HeroId;
+                existing.LastKnownCharacterName =
+                    identity.LastKnownCharacterName;
+                changed = true;
             }
-            else
-            {
-                existing.HeroId = heroId.Trim();
-                existing.LastKnownCharacterName = characterName.Trim();
-            }
+
+            if (!changed)
+                return;
 
             await WriteEntriesAtomicAsync(
                 IdentityCachePath,

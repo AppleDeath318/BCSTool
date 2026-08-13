@@ -63,7 +63,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
     // Current-session identity evidence. Enforcement never trusts character
     // names alone: a player is actionable only after the active save confirms
-    // HeroId -> SteamID64 and coop.debug.hero.list confirms HeroId -> name.
+    // HeroId -> SteamID64 and current-session or revalidated cached evidence
+    // confirms HeroId -> name.
     private readonly Dictionary<string, string> _controllerByHeroId =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _heroNameByHeroId =
@@ -78,6 +79,27 @@ public sealed class MainViewModel : BindableBase, IDisposable
         new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _accessControlLock = new(1, 1);
     private DateTime _lastHeroListRequestUtc = DateTime.MinValue;
+    private bool _heroListRequestPending;
+    private int _heroListActivityVersion;
+    private int _identityRefreshVersion;
+
+    private static readonly TimeSpan HeroListQuietPeriod =
+        TimeSpan.FromMilliseconds(500);
+
+    private static readonly TimeSpan HeroListRequestInterval =
+        TimeSpan.FromSeconds(15);
+
+    private static readonly TimeSpan HeroListRequestTimeout =
+        TimeSpan.FromSeconds(10);
+
+    private static readonly TimeSpan[] IdentityRefreshRetryDelays =
+    {
+        TimeSpan.Zero,
+        TimeSpan.FromMilliseconds(500),
+        TimeSpan.FromSeconds(1.5),
+        TimeSpan.FromSeconds(3),
+        TimeSpan.FromSeconds(5)
+    };
 
     private static readonly Regex HeroListLineRegex =
         new(
@@ -1563,6 +1585,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _sessionIdentityByName.Clear();
         _enforcedPlayerConnections.Clear();
         _lastHeroListRequestUtc = DateTime.MinValue;
+        _heroListRequestPending = false;
+        _heroListActivityVersion++;
+        _identityRefreshVersion++;
 
         OnPropertyChanged(nameof(PlayersHeaderText));
     }
@@ -1808,11 +1833,13 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
 
     /// <summary>
-    /// Reloads HeroId -> ControllerId from the active save JSON. If requested,
-    /// also asks the server for a fresh HeroId -> character-name listing.
+    /// Reloads HeroId -> ControllerId from the active save JSON. Valid evidence
+    /// is merged into the current session rather than cleared because the Coop
+    /// companion file can be briefly valid-but-incomplete while being saved.
     /// </summary>
     private async Task RefreshPlayerIdentityEvidenceAsync(
-        bool requestHeroList)
+        bool requestHeroList,
+        bool reportErrors)
     {
         if (_applicationClosing)
             return;
@@ -1822,11 +1849,37 @@ public sealed class MainViewModel : BindableBase, IDisposable
             var saveMap =
                 await _playerAccessService.LoadActiveSavePlayerMapAsync();
 
-            _controllerByHeroId.Clear();
-
             foreach (var pair in saveMap)
             {
                 _controllerByHeroId[pair.Key] = pair.Value;
+            }
+
+            // The persistent cache is trusted only when the current active save
+            // confirms the exact same HeroId -> SteamID64 relationship. This
+            // keeps known players resolvable while avoiding a giant hero-list
+            // command on every connection.
+            var cachedIdentities =
+                await _playerAccessService.LoadIdentityCacheAsync();
+
+            foreach (var cached in cachedIdentities)
+            {
+                if (
+                    string.IsNullOrWhiteSpace(cached.HeroId) ||
+                    string.IsNullOrWhiteSpace(cached.LastKnownCharacterName) ||
+                    !_controllerByHeroId.TryGetValue(
+                        cached.HeroId,
+                        out var currentSteamId) ||
+                    !string.Equals(
+                        currentSteamId,
+                        cached.SteamId,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                _heroNameByHeroId.TryAdd(
+                    cached.HeroId,
+                    cached.LastKnownCharacterName.Trim());
             }
 
             await RebuildSessionIdentitiesAsync();
@@ -1841,18 +1894,27 @@ public sealed class MainViewModel : BindableBase, IDisposable
         }
         catch (JsonException ex)
         {
-            AddToolMessage(
-                $"Could not read player identities from the active save yet: {ex.Message}");
+            if (reportErrors)
+            {
+                AddToolMessage(
+                    $"Could not read player identities from the active save yet: {ex.Message}");
+            }
         }
         catch (IOException ex)
         {
-            AddToolMessage(
-                $"Could not read player identities from the active save yet: {ex.Message}");
+            if (reportErrors)
+            {
+                AddToolMessage(
+                    $"Could not read player identities from the active save yet: {ex.Message}");
+            }
         }
         catch (Exception ex)
         {
-            AddToolMessage(
-                $"Player identity refresh failed: {ex.Message}");
+            if (reportErrors)
+            {
+                AddToolMessage(
+                    $"Player identity refresh failed: {ex.Message}");
+            }
         }
 
         if (requestHeroList)
@@ -1862,27 +1924,180 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
 
+    /// <summary>
+    /// Coalesces player/save events and retries the companion JSON after short
+    /// delays. The server can log save completion just before the replacement
+    /// JSON becomes visible, especially when Documents is synchronized.
+    /// </summary>
+    private void QueuePlayerIdentityEvidenceRefresh(
+        bool requestHeroList)
+    {
+        var version =
+            ++_identityRefreshVersion;
+
+        _ = RefreshPlayerIdentityEvidenceWithRetriesAsync(
+            version,
+            requestHeroList);
+    }
+
+
+    private async Task RefreshPlayerIdentityEvidenceWithRetriesAsync(
+        int version,
+        bool requestHeroList)
+    {
+        try
+        {
+            for (
+                var attempt = 0;
+                attempt < IdentityRefreshRetryDelays.Length;
+                attempt++)
+            {
+                var delay =
+                    IdentityRefreshRetryDelays[attempt];
+
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(
+                        delay,
+                        _lifetimeCts.Token);
+                }
+
+                if (
+                    version != _identityRefreshVersion ||
+                    _applicationClosing)
+                {
+                    return;
+                }
+
+                await RefreshPlayerIdentityEvidenceAsync(
+                    requestHeroList,
+                    reportErrors:
+                        attempt ==
+                        IdentityRefreshRetryDelays.Length - 1);
+
+                if (!HasUnresolvedNamedPlayers())
+                    return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+
+    private bool HasUnresolvedNamedPlayers()
+    {
+        return
+            _playerRosterTracker.Players.Any(
+                player =>
+                    !string.IsNullOrWhiteSpace(player.Name) &&
+                    !string.Equals(
+                        player.Name,
+                        "(joining)",
+                        StringComparison.OrdinalIgnoreCase) &&
+                    !_sessionIdentityByName.ContainsKey(
+                        player.Name.Trim()));
+    }
+
+
+    private bool NeedsHeroListRefresh()
+    {
+        foreach (var player in _playerRosterTracker.Players)
+        {
+            if (
+                string.IsNullOrWhiteSpace(player.Name) ||
+                string.Equals(
+                    player.Name,
+                    "(joining)",
+                    StringComparison.OrdinalIgnoreCase) ||
+                _sessionIdentityByName.ContainsKey(
+                    player.Name.Trim()))
+            {
+                continue;
+            }
+
+            var heroNameKnown =
+                _heroNameByHeroId.Values.Any(
+                    knownName =>
+                        string.Equals(
+                            knownName,
+                            player.Name.Trim(),
+                            StringComparison.OrdinalIgnoreCase));
+
+            if (!heroNameKnown)
+                return true;
+        }
+
+        return false;
+    }
+
+
     private async Task RequestHeroListRefreshAsync()
     {
         if (_applicationClosing ||
             !_processManager.IsRunning ||
-            !_serverReady)
+            !_serverReady ||
+            !NeedsHeroListRefresh())
         {
             return;
         }
 
-        // Player snapshots can arrive very frequently while loading. One hero
-        // list every few seconds is sufficient to discover a newly-created Hero.
-        if (DateTime.UtcNow - _lastHeroListRequestUtc < TimeSpan.FromSeconds(5))
+        var elapsed =
+            DateTime.UtcNow - _lastHeroListRequestUtc;
+
+        if (
+            _heroListRequestPending &&
+            elapsed < HeroListRequestTimeout)
+        {
+            return;
+        }
+
+        if (elapsed < HeroListRequestInterval)
             return;
 
         _lastHeroListRequestUtc = DateTime.UtcNow;
+        _heroListRequestPending = true;
 
-        if (await _processManager.SendCommandAsync(
+        if (!await _processManager.SendCommandAsync(
                 "coop.debug.hero.list",
                 _lifetimeCts.Token))
         {
-            AddToolMessage("Refreshing player identity mapping...");
+            _heroListRequestPending = false;
+        }
+    }
+
+
+    private void ScheduleHeroListCompletion()
+    {
+        var version =
+            ++_heroListActivityVersion;
+
+        _ = CompleteHeroListAfterQuietPeriodAsync(
+            version);
+    }
+
+
+    private async Task CompleteHeroListAfterQuietPeriodAsync(
+        int version)
+    {
+        try
+        {
+            await Task.Delay(
+                HeroListQuietPeriod,
+                _lifetimeCts.Token);
+
+            if (
+                version != _heroListActivityVersion ||
+                _applicationClosing)
+            {
+                return;
+            }
+
+            _heroListRequestPending = false;
+            await RebuildSessionIdentitiesAsync();
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 
@@ -1920,6 +2135,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
             matching.Add(identity);
         }
 
+        var resolvedCurrentPlayers =
+            new List<PlayerIdentityEntry>();
+
         _sessionIdentityByName.Clear();
 
         foreach (var candidate in candidates)
@@ -1933,14 +2151,29 @@ public sealed class MainViewModel : BindableBase, IDisposable
             var identity = candidate.Value[0];
             _sessionIdentityByName[candidate.Key] = identity;
 
-            await _playerAccessService.UpsertIdentityAsync(
-                identity.SteamId,
-                identity.HeroId,
-                identity.CharacterName);
+            if (
+                _playerRosterTracker.Players.Any(
+                    player =>
+                        string.Equals(
+                            player.Name?.Trim(),
+                            identity.CharacterName,
+                            StringComparison.OrdinalIgnoreCase)))
+            {
+                resolvedCurrentPlayers.Add(
+                    new PlayerIdentityEntry
+                    {
+                        SteamId = identity.SteamId,
+                        HeroId = identity.HeroId,
+                        LastKnownCharacterName = identity.CharacterName
+                    });
+            }
         }
 
         RefreshPlayerRoster();
         await EvaluatePlayerAccessAsync();
+
+        await _playerAccessService.UpsertIdentitiesAsync(
+            resolvedCurrentPlayers);
     }
 
 
@@ -2186,6 +2419,13 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 continue;
             }
 
+            if (IsHeroListCommandEcho(line))
+            {
+                // This is an internal identity lookup, not a user command.
+                // Keep its echo out of the visible Server Console.
+                continue;
+            }
+
             var markerIndex =
                 line.IndexOf(
                     "@DS@",
@@ -2222,7 +2462,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
                             entry.CharacterName;
                     }
 
-                    _ = RebuildSessionIdentitiesAsync();
+                    // A single hero-list response spans many 250-line monitor
+                    // batches. Rebuild only after output has gone quiet instead
+                    // of launching overlapping work for every partial batch.
+                    ScheduleHeroListCompletion();
                 }
 
                 // LEGACY BCS SAVE BACKUPS (disabled): successful save events
@@ -2239,7 +2482,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
                 if (successfulSaveCount > 0)
                 {
-                    _ = RefreshPlayerIdentityEvidenceAsync(
+                    QueuePlayerIdentityEvidenceRefresh(
                         requestHeroList: true);
                 }
 
@@ -2249,6 +2492,20 @@ public sealed class MainViewModel : BindableBase, IDisposable
                         "Launcher reported that the hosted server exited unexpectedly.");
                 }
             }));
+    }
+
+
+    private static bool IsHeroListCommandEcho(
+        string line)
+    {
+        var content =
+            RemoveServerLogTimestamp(line).Trim();
+
+        return
+            string.Equals(
+                content,
+                "[DedicatedServer] > coop.debug.hero.list",
+                StringComparison.OrdinalIgnoreCase);
     }
 
 
@@ -2350,6 +2607,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     {
                         RefreshPlayerRoster();
                         _ = EvaluatePlayerAccessAsync();
+                        QueuePlayerIdentityEvidenceRefresh(
+                            requestHeroList: true);
                     }
                     break;
 
@@ -2435,7 +2694,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         RecalculateNextRestart();
 
-        _ = RefreshPlayerIdentityEvidenceAsync(
+        QueuePlayerIdentityEvidenceRefresh(
             requestHeroList: true);
     }
 
