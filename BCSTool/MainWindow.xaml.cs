@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using BCSTool.Models;
 using BCSTool.Services;
 using BCSTool.ViewModels;
 
@@ -38,6 +39,7 @@ public partial class MainWindow : Window
     private bool _applyingAutocomplete;
     private bool _suppressSuggestionRefresh;
     private bool _commandSuggestionUiReady;
+    private bool _playerAccessModeUiReady;
 
     public MainWindow(
         MainViewModel viewModel,
@@ -71,6 +73,188 @@ public partial class MainWindow : Window
         _bcsToolConsoleScroller.Initialize();
 
         await _viewModel.InitializeAsync();
+
+        // Initialization replaces the default Settings instance with the
+        // persisted one. Enable user-driven mode changes only after that load
+        // is complete so the ComboBox cannot write the temporary default.
+        PlayerAccessModeComboBox.SelectedItem =
+            _viewModel.PlayerAccessMode;
+
+        _playerAccessModeUiReady = true;
+    }
+
+    private async void PlayerAccessMode_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (
+            !_playerAccessModeUiReady ||
+            PlayerAccessModeComboBox.SelectedItem is not
+                PlayerAccessMode selectedMode ||
+            selectedMode == _viewModel.PlayerAccessMode)
+        {
+            return;
+        }
+
+        PlayerAccessModeComboBox.IsEnabled = false;
+
+        try
+        {
+            await _viewModel.UpdatePlayerAccessModeAsync(
+                selectedMode);
+        }
+        catch (Exception ex)
+        {
+            PlayerAccessModeComboBox.SelectedItem =
+                _viewModel.PlayerAccessMode;
+
+            MessageBox.Show(
+                this,
+                $"Could not apply the player access mode.\n\n{ex.Message}",
+                "Access Control",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            PlayerAccessModeComboBox.IsEnabled = true;
+        }
+    }
+
+    private void PlayerInformation_PreviewMouseRightButtonDown(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        var item =
+            ItemsControl.ContainerFromElement(
+                PlayerInformationList,
+                e.OriginalSource as DependencyObject)
+            as ListBoxItem;
+
+        PlayerInformationList.SelectedItem =
+            item?.DataContext;
+    }
+
+    private void PlayerInformation_ContextMenuOpening(
+        object sender,
+        ContextMenuEventArgs e)
+    {
+        if (
+            PlayerInformationList.SelectedItem is not
+                PlayerInformationLine line ||
+            (!line.IsPlayerLine &&
+             !line.CanCopySteamId))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var playerActionVisibility =
+            line.IsPlayerLine
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        KickPlayerMenuItem.Visibility =
+            playerActionVisibility;
+
+        BanPlayerMenuItem.Visibility =
+            playerActionVisibility;
+
+        KickPlayerMenuItem.IsEnabled =
+            _viewModel.CanKickPlayer(line);
+
+        BanPlayerMenuItem.IsEnabled =
+            _viewModel.CanBanPlayer(line);
+
+        BanPlayerMenuItem.ToolTip =
+            BanPlayerMenuItem.IsEnabled
+                ? null
+                : "SteamID64 has not been resolved for this player yet.";
+
+        CopyPlayerSteamIdMenuItem.Visibility =
+            line.CanCopySteamId
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    private async void KickPlayer_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (
+            PlayerInformationList.SelectedItem is not
+                PlayerInformationLine line)
+        {
+            return;
+        }
+
+        try
+        {
+            await _viewModel.KickPlayerAsync(line);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not kick the player.\n\n{ex.Message}",
+                "Access Control",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private async void BanPlayer_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (
+            PlayerInformationList.SelectedItem is not
+                PlayerInformationLine line)
+        {
+            return;
+        }
+
+        try
+        {
+            await _viewModel.BanPlayerAsync(line);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not add the player to the banlist.\n\n{ex.Message}",
+                "Access Control",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void CopyPlayerSteamId_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (
+            PlayerInformationList.SelectedItem is not
+                PlayerInformationLine line ||
+            !line.CanCopySteamId ||
+            !PlayerAccessService.IsValidSteamId64(line.SteamId))
+        {
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(line.SteamId);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not copy the SteamID64.\n\n{ex.Message}",
+                "Access Control",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     /// <summary>
@@ -499,6 +683,20 @@ public partial class MainWindow : Window
 
         window.ShowDialog();
     }
+
+    private void PlayerAccess_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var window =
+            new PlayerAccessWindow(_viewModel)
+            {
+                Owner = this
+            };
+
+        window.ShowDialog();
+    }
+
 
     /// <summary>
     /// Opens the Bannerlord Coop mod configuration editor.

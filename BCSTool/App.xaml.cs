@@ -89,6 +89,9 @@ public partial class App : Application
             logService,
             coopConfigService);
         var saveBackupService = new SaveBackupService(coopConfigService);
+        var playerAccessService = new PlayerAccessService(
+            logService,
+            coopConfigService);
 
         // MainViewModel coordinates the UI with all server-management logic.
         _viewModel = new MainViewModel(
@@ -100,7 +103,8 @@ public partial class App : Application
             playerRosterTracker,
             serverLogMonitor,
             serverExecutableLocator,
-            saveBackupService);
+            saveBackupService,
+            playerAccessService);
 
         var window = new MainWindow(
             _viewModel,

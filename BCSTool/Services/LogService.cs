@@ -29,13 +29,16 @@ public sealed class LogService
     }
 
     /// <summary>
-    /// Appends one timestamped line to today's log file.
+    /// Appends one timestamped line to today's log file. The timestamp mirrors
+    /// the server-log prefix and is intentionally not included in the in-app
+    /// BCS Tool Console.
     /// The lock prevents two threads from writing the same file concurrently.
     /// </summary>
     public void Write(string message)
     {
-        var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
-        var file = Path.Combine(LogDirectory, $"BCSTool-{DateTime.Now:yyyy-MM-dd}.log");
+        var now = DateTime.Now;
+        var line = $"{now:HH:mm:ss.fff}  {message}";
+        var file = Path.Combine(LogDirectory, $"BCSTool-{now:yyyy-MM-dd}.log");
 
         lock (_sync)
         {

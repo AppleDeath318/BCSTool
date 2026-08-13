@@ -10,10 +10,11 @@
       2. Server settings
       3. Restart settings
       4. Manual server controls
-      5. Embedded server console
-      6. BCS Tool console
-      7. Manual command input
-      8. Status/footer
+      5. Player control
+      6. Embedded server console
+      7. BCS Tool console
+      8. Manual command input
+      9. Status/footer
 -->
 <Window x:Class="BCSTool.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -22,8 +23,8 @@
         Title="BCS Tool"
         Width="1180"
         Height="820"
-        MinWidth="950"
-        MinHeight="620"
+        MinWidth="1000"
+        MinHeight="700"
         WindowStartupLocation="CenterScreen"
         Loaded="Window_Loaded"
         Deactivated="Window_Deactivated"
@@ -57,8 +58,9 @@
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="230" MinHeight="200"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="*" MinHeight="280"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -177,23 +179,27 @@
 
         <!--
             SETTINGS + CONTROLS
-            Three equal parallel columns:
+            Four parallel sections:
               1. Server Settings
               2. Restart Settings
               3. Server Controls
+              4. Access Control (Beta)
         -->
         <Grid Grid.Row="1"
-              Margin="0,0,0,10">
+              Margin="0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="1.35*" MinWidth="245"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="1.2*" MinWidth="220"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="1.1*" MinWidth="220"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="0.75*" MinWidth="185"/>
             </Grid.ColumnDefinitions>
 
             <!-- Server executable + configuration editors -->
             <GroupBox Grid.Column="0"
-                      Header="Server Settings"
-                      Margin="0,0,6,0">
+                      Header="Server Settings">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -250,10 +256,17 @@
                 </Grid>
             </GroupBox>
 
+            <GridSplitter Grid.Column="1"
+                          Width="6"
+                          Margin="5,0"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          ResizeDirection="Columns"
+                          ResizeBehavior="PreviousAndNext"/>
+
             <!-- Restart scheduling -->
-            <GroupBox Grid.Column="1"
-                      Header="Restart Settings"
-                      Margin="6,0,6,0">
+            <GroupBox Grid.Column="2"
+                      Header="Restart Settings">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -342,10 +355,17 @@
                 </Grid>
             </GroupBox>
 
+            <GridSplitter Grid.Column="3"
+                          Width="6"
+                          Margin="5,0"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          ResizeDirection="Columns"
+                          ResizeBehavior="PreviousAndNext"/>
+
             <!-- Manual server controls -->
-            <GroupBox Grid.Column="2"
-                      Header="Server Controls"
-                      Margin="6,0,0,0">
+            <GroupBox Grid.Column="4"
+                      Header="Server Controls">
                 <UniformGrid Rows="2"
                              Columns="3"
                              Margin="10">
@@ -374,7 +394,61 @@
                             Margin="4"/>
                 </UniformGrid>
             </GroupBox>
+
+            <GridSplitter Grid.Column="5"
+                          Width="6"
+                          Margin="5,0"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          ResizeDirection="Columns"
+                          ResizeBehavior="PreviousAndNext"/>
+
+            <!-- Player access policy and SteamID64 lists -->
+            <GroupBox Grid.Column="6"
+                      Header="Access Control (Beta)">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0"
+                               Text="Access mode:"
+                               FontWeight="SemiBold"/>
+
+                    <ComboBox x:Name="PlayerAccessModeComboBox"
+                              Grid.Row="1"
+                              ItemsSource="{Binding PlayerAccessModeOptions}"
+                              SelectedItem="{Binding PlayerAccessMode, Mode=OneWay}"
+                              SelectionChanged="PlayerAccessMode_SelectionChanged"
+                              VerticalContentAlignment="Center"
+                              Margin="0,4,0,10"/>
+
+                    <Button Grid.Row="2"
+                            Content="Banlist/Whitelist Panel"
+                            Click="PlayerAccess_Click"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Center"/>
+
+                    <TextBlock Grid.Row="3"
+                               Margin="0,10,0,0"
+                               FontSize="11"
+                               Foreground="Gray"
+                               TextWrapping="Wrap"
+                               Text="Banlist: blocks listed SteamID64s.&#10;Whitelist: allows only listed SteamID64s."/>
+                </Grid>
+            </GroupBox>
         </Grid>
+
+        <GridSplitter Grid.Row="2"
+                      Height="6"
+                      Margin="0,5"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Center"
+                      ResizeDirection="Rows"
+                      ResizeBehavior="PreviousAndNext"/>
 
 
         <!--
@@ -391,15 +465,15 @@
             Command input is a normal local WPF editor. Tab autocomplete and
             history are handled locally; the complete line is sent on Enter.
         -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
             <Grid.RowDefinitions>
-                <RowDefinition Height="3*" MinHeight="240"/>
-                <RowDefinition Height="1*" MinHeight="100"/>
+                <RowDefinition Height="3*" MinHeight="140"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="1*" MinHeight="80"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0"
-                  Margin="0,0,0,8">
+            <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="3*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -443,19 +517,51 @@
 
                 <GroupBox Grid.Column="2"
                           Header="{Binding PlayersHeaderText}">
-                    <ListBox ItemsSource="{Binding PlayerLines}"
+                    <ListBox x:Name="PlayerInformationList"
+                             ItemsSource="{Binding PlayerLines}"
                              Margin="8"
                              FontFamily="Consolas"
                              FontSize="12"
                              Background="White"
                              Foreground="Black"
                              BorderThickness="0"
-                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             PreviewMouseRightButtonDown="PlayerInformation_PreviewMouseRightButtonDown"
+                             ContextMenuOpening="PlayerInformation_ContextMenuOpening">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Text}"
+                                           TextWrapping="NoWrap"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem x:Name="KickPlayerMenuItem"
+                                          Header="Kick"
+                                          Click="KickPlayer_Click"/>
+                                <MenuItem x:Name="BanPlayerMenuItem"
+                                          Header="Ban"
+                                          Click="BanPlayer_Click"/>
+                                <MenuItem x:Name="CopyPlayerSteamIdMenuItem"
+                                          Header="Copy SteamID"
+                                          Click="CopyPlayerSteamId_Click"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                    </ListBox>
                 </GroupBox>
             </Grid>
 
-            <GroupBox Grid.Row="1"
+            <GridSplitter Grid.Row="1"
+                          Height="6"
+                          Margin="0,4"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center"
+                          ResizeDirection="Rows"
+                          ResizeBehavior="PreviousAndNext"/>
+
+            <GroupBox Grid.Row="2"
                       Header="BCS Tool Console"
                       Margin="0,0,0,8">
                 <Grid Margin="8">
@@ -469,11 +575,21 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              VirtualizingPanel.IsVirtualizing="True"
-                             VirtualizingPanel.VirtualizationMode="Recycling"/>
+                             VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Text}"
+                                           Foreground="{Binding Foreground}"
+                                           FontFamily="Consolas"
+                                           FontSize="12"
+                                           TextWrapping="NoWrap"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
             </GroupBox>
 
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="3">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="6*"/>
                     <ColumnDefinition Width="1*"/>
@@ -545,7 +661,7 @@
         </Grid>
 
         <!-- FOOTER: human-readable application status / version -->
-        <Grid Grid.Row="3" Margin="0,10,0,0">
+        <Grid Grid.Row="4" Margin="0,10,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>

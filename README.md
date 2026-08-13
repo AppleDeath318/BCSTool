@@ -15,6 +15,9 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Restart warning message broadcast
 * Automatic crash recovery
 * Built-in live server log console with local command input
+* Adjustable Server Console / Players / BCS Tool Console workspace
+* Color-coded BCS Tool status and diagnostic messages
+* Player access control with SteamID64 banlist and whitelist modes
 * Automatic server executable detection
 * Server configuration modification
 * Mod configuration modification
@@ -170,6 +173,8 @@ Before a scheduled restart, it can:
 4. Restart the server
 
 Crash recovery can also restart the server automatically if the managed process exits unexpectedly.
+
+Scheduled automation becomes active only after the dedicated server's structured runtime state reports `SERVING`.
 
 ## Building from Source
 

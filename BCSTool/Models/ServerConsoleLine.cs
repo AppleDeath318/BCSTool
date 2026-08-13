@@ -119,9 +119,6 @@ public sealed class ServerConsoleLine
                 StringComparison.OrdinalIgnoreCase) ||
             line.Contains(
                 "server ready",
-                StringComparison.OrdinalIgnoreCase) ||
-            line.Contains(
-                "coop server up, waiting for clients",
                 StringComparison.OrdinalIgnoreCase))
         {
             return SuccessBrush;

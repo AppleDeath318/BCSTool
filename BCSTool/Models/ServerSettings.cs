@@ -26,9 +26,6 @@ public sealed class ServerSettings
     // Broadcast every minute starting this many minutes before restart.
     public int WarningMinutesBefore { get; set; } = 5;
 
-    // Automation is not enabled until server stdout contains this text.
-    public string ReadyText { get; set; } = "coop server up, waiting for clients";
-
     public int SaveWaitSeconds { get; set; } = 10;
     public int RestartDelaySeconds { get; set; } = 10;
     public int ShutdownTimeoutSeconds { get; set; } = 60;
@@ -51,6 +48,10 @@ public sealed class ServerSettings
     // written into Bannerlord Coop's server-config.json.
     public bool SaveBackupsEnabled { get; set; } = true;
     public int SaveBackupCount { get; set; } = 5;
+
+    // Player access control is enforced by SteamID64 after BCS Tool resolves
+    // the current session's character -> HeroId -> ControllerId chain.
+    public PlayerAccessMode PlayerAccessMode { get; set; } = PlayerAccessMode.None;
 
     public string BroadcastSaving { get; set; } = "Saving Files...";
     public string BroadcastRestarting { get; set; } = "Restarting...";
@@ -106,9 +107,6 @@ public sealed class ServerSettings
 
         if (ShutdownTimeoutSeconds < 1)
             errors.Add("Shutdown timeout must be at least 1 second.");
-
-        if (string.IsNullOrWhiteSpace(ReadyText))
-            errors.Add("Ready text cannot be empty.");
 
         if (string.IsNullOrWhiteSpace(ServerExecutable))
             errors.Add("Server executable cannot be empty.");

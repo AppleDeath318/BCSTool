@@ -109,12 +109,6 @@ public sealed class SettingsService
                 0,
                 10);
 
-        settings.ReadyText =
-            ReadString(
-                key,
-                nameof(ServerSettings.ReadyText),
-                settings.ReadyText);
-
         settings.SaveWaitSeconds =
             ReadInt(
                 key,
@@ -171,6 +165,12 @@ public sealed class SettingsService
                     settings.SaveBackupCount),
                 1,
                 5);
+
+        settings.PlayerAccessMode =
+            ReadPlayerAccessMode(
+                key,
+                nameof(ServerSettings.PlayerAccessMode),
+                settings.PlayerAccessMode);
 
         settings.BroadcastSaving =
             ReadString(
@@ -301,6 +301,33 @@ public sealed class SettingsService
 
 
     /// <summary>
+    /// Saves only the selected player access-control mode. Banlist/whitelist
+    /// contents live as JSON files under %LOCALAPPDATA%\BCS Tool.
+    /// </summary>
+    public Task SavePlayerAccessModeAsync(
+        ServerSettings settings)
+    {
+        using var key =
+            Registry.CurrentUser.CreateSubKey(
+                RegistryPath,
+                writable: true);
+
+        if (key is null)
+        {
+            throw new InvalidOperationException(
+                "Could not create or open the BCS Tool Registry settings key.");
+        }
+
+        WriteString(
+            key,
+            nameof(ServerSettings.PlayerAccessMode),
+            settings.PlayerAccessMode.ToString());
+
+        return Task.CompletedTask;
+    }
+
+
+    /// <summary>
     /// Saves all current settings to the Registry.
     ///
     /// Retained for compatibility with older code paths. The current UI uses
@@ -330,11 +357,6 @@ public sealed class SettingsService
             key,
             nameof(ServerSettings.ServerExecutable),
             settings.ServerExecutable);
-
-        WriteString(
-            key,
-            nameof(ServerSettings.ReadyText),
-            settings.ReadyText);
 
         WriteString(
             key,
@@ -412,6 +434,11 @@ public sealed class SettingsService
                 settings.SaveBackupCount,
                 1,
                 5));
+
+        WriteString(
+            key,
+            nameof(ServerSettings.PlayerAccessMode),
+            settings.PlayerAccessMode.ToString());
 
         return Task.CompletedTask;
     }
@@ -575,6 +602,35 @@ public sealed class SettingsService
         {
             return defaultValue;
         }
+    }
+
+
+    private static PlayerAccessMode ReadPlayerAccessMode(
+        RegistryKey key,
+        string name,
+        PlayerAccessMode defaultValue)
+    {
+        var value = key.GetValue(name)?.ToString();
+
+        // Earlier builds stored the inactive access mode as "Disabled".
+        // Preserve that setting while writing the clearer "None" name from
+        // now on.
+        if (
+            string.Equals(
+                value,
+                "Disabled",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return PlayerAccessMode.None;
+        }
+
+        return
+            Enum.TryParse<PlayerAccessMode>(
+                value,
+                ignoreCase: true,
+                out var parsed)
+                ? parsed
+                : defaultValue;
     }
 
 

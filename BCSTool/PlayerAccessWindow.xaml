@@ -1,0 +1,162 @@
+<Window x:Class="BCSTool.PlayerAccessWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Player Access Control"
+        Width="900"
+        Height="620"
+        MinWidth="760"
+        MinHeight="500"
+        WindowStartupLocation="CenterOwner"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="#FFF7E6"
+                BorderBrush="#E0B45A"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="9"
+                Margin="0,0,0,10">
+            <TextBlock TextWrapping="Wrap">
+                    Using SteamID64 for authentication. A player whose identity is not yet resolvable — including someone still creating a character — remains Pending and is not kicked until BCS Tool can confirm character → Hero ID → SteamID from the current save.
+            </TextBlock>
+        </Border>
+
+        <TabControl x:Name="ListTabControl"
+                    Grid.Row="1">
+            <TabItem Header="Banlist">
+                <DataGrid x:Name="BanlistGrid"
+                          ItemsSource="{Binding BanlistEntries}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single"
+                          PreviewMouseRightButtonDown="AccessGrid_PreviewMouseRightButtonDown"
+                          ContextMenuOpening="AccessGrid_ContextMenuOpening"
+                          Margin="6">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Copy SteamID"
+                                      Click="CopyBanlistSteamId_Click"/>
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Steam ID" Binding="{Binding SteamId}" Width="170"/>
+                        <DataGridTextColumn Header="Last known character" Binding="{Binding LastKnownCharacterName}" Width="180"/>
+                        <DataGridTextColumn Header="Hero ID" Binding="{Binding HeroId}" Width="180"/>
+                        <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem Header="Whitelist">
+                <DataGrid x:Name="WhitelistGrid"
+                          ItemsSource="{Binding WhitelistEntries}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single"
+                          PreviewMouseRightButtonDown="AccessGrid_PreviewMouseRightButtonDown"
+                          ContextMenuOpening="AccessGrid_ContextMenuOpening"
+                          Margin="6">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Copy SteamID"
+                                      Click="CopyWhitelistSteamId_Click"/>
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Steam ID" Binding="{Binding SteamId}" Width="170"/>
+                        <DataGridTextColumn Header="Last known character" Binding="{Binding LastKnownCharacterName}" Width="180"/>
+                        <DataGridTextColumn Header="Hero ID" Binding="{Binding HeroId}" Width="180"/>
+                        <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+        </TabControl>
+
+        <Grid Grid.Row="2"
+              Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="190"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       Text="Steam ID:"
+                       VerticalAlignment="Center"
+                       Margin="0,0,6,0"/>
+            <TextBox x:Name="SteamIdTextBox"
+                     Grid.Column="1"
+                     VerticalContentAlignment="Center"
+                     Margin="0,0,12,0"/>
+
+            <TextBlock Grid.Column="2"
+                       Text="Note:"
+                       VerticalAlignment="Center"
+                       Margin="0,0,6,0"/>
+            <TextBox x:Name="NoteTextBox"
+                     Grid.Column="3"
+                     VerticalContentAlignment="Center"
+                     Margin="0,0,12,0"/>
+
+            <Button Grid.Column="4"
+                    Content="Add"
+                    Width="85"
+                    Margin="0,0,6,0"
+                    Click="Add_Click"/>
+            <Button Grid.Column="5"
+                    Content="Remove"
+                    Width="85"
+                    Margin="0,0,6,0"
+                    Click="Remove_Click"/>
+            <Button Grid.Column="6"
+                    Content="Open Folder"
+                    Width="100"
+                    Click="OpenFolder_Click"/>
+        </Grid>
+
+        <Grid Grid.Row="3"
+              Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="120"/>
+                <ColumnDefinition Width="120"/>
+                <ColumnDefinition Width="120"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       x:Name="StoragePathText"
+                       Foreground="Gray"
+                       VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"/>
+
+            <Button Grid.Column="1"
+                    Content="Apply &amp; Close"
+                    Margin="6,0,0,0"
+                    Click="ApplyAndClose_Click"/>
+            <Button Grid.Column="2"
+                    Content="Apply"
+                    Margin="6,0,0,0"
+                    Click="Apply_Click"/>
+            <Button Grid.Column="3"
+                    Content="Close"
+                    Margin="6,0,0,0"
+                    Click="Close_Click"/>
+        </Grid>
+    </Grid>
+</Window>

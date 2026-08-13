@@ -13,9 +13,9 @@ public enum ServerState
     Stopped,
     // BCS Tool has requested process startup.
     Starting,
-    // Process exists, but the server has not printed the readiness message.
+    // Process exists, but the server has not reported its SERVING state.
     WaitingForReady,
-    // Server printed "coop server up, waiting for clients".
+    // The structured dedicated-server state is SERVING.
     Ready,
     // BCS Tool is sending or waiting on the save sequence.
     Saving,

@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using BCSTool.Infrastructure;
 using BCSTool.Models;
 using BCSTool.Services;
@@ -58,6 +59,30 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private readonly ServerLogMonitor _serverLogMonitor;
     private readonly ServerExecutableLocator _serverExecutableLocator;
     private readonly SaveBackupService _saveBackupService;
+    private readonly PlayerAccessService _playerAccessService;
+
+    // Current-session identity evidence. Enforcement never trusts character
+    // names alone: a player is actionable only after the active save confirms
+    // HeroId -> SteamID64 and coop.debug.hero.list confirms HeroId -> name.
+    private readonly Dictionary<string, string> _controllerByHeroId =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _heroNameByHeroId =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SessionPlayerIdentity> _sessionIdentityByName =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _enforcedPlayerConnections =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _bannedSteamIds =
+        new(StringComparer.Ordinal);
+    private readonly HashSet<string> _whitelistedSteamIds =
+        new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _accessControlLock = new(1, 1);
+    private DateTime _lastHeroListRequestUtc = DateTime.MinValue;
+
+    private static readonly Regex HeroListLineRegex =
+        new(
+            @"ID:\s*'(?<id>[^']+)',\s*Name:\s*'(?<name>.*)',\s*Game ID:",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly Dispatcher _dispatcher;
     private readonly CancellationTokenSource _lifetimeCts = new();
@@ -100,8 +125,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
     // authoritative state machine used by automation.
     private string _reportedServerStatus = "";
 
-    // BCS Tool lifecycle/scheduler messages.
-    public ObservableCollection<string> ConsoleLines { get; } = new();
+    // BCS Tool lifecycle/scheduler messages. Each visible line carries a
+    // semantic foreground color; timestamps are written only to the log file.
+    public ObservableCollection<BcsToolConsoleLine> ConsoleLines { get; } = new();
 
     // The visible Server Console now follows the dedicated server's .log file.
     // Keep a bounded live window so a long-running 24/7 server cannot grow the
@@ -121,9 +147,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// log-only @DS@ players snapshot, so states such as "creating character"
     /// are not limited by the native terminal's visual column width.
     /// </summary>
-    public ObservableCollection<string> PlayerLines { get; } = new()
+    public ObservableCollection<PlayerInformationLine> PlayerLines { get; } = new()
     {
-        "(no one online)"
+        PlayerInformationLine.Detail("(no one online)")
     };
 
     public IReadOnlyList<int> RestartHourOptions { get; } =
@@ -140,6 +166,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
             SaveBackupService.MinimumBackupCount,
             SaveBackupService.MaximumBackupCount).ToArray();
 
+    public IReadOnlyList<PlayerAccessMode> PlayerAccessModeOptions { get; } =
+        Enum.GetValues<PlayerAccessMode>();
+
     public ServerSettings Settings
     {
         get => _settings;
@@ -148,6 +177,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (SetProperty(ref _settings, value))
             {
                 OnPropertyChanged(nameof(ServerExecutableDisplay));
+                OnPropertyChanged(nameof(PlayerAccessMode));
             }
         }
     }
@@ -332,6 +362,155 @@ public sealed class MainViewModel : BindableBase, IDisposable
         private set => SetProperty(ref _nextRestartText, value);
     }
 
+    public PlayerAccessMode PlayerAccessMode =>
+        Settings.PlayerAccessMode;
+
+    public string PlayerAccessDataDirectory =>
+        _playerAccessService.DataDirectory;
+
+    public Task<IReadOnlyList<PlayerAccessEntry>> GetBanlistAsync() =>
+        _playerAccessService.LoadBanlistAsync();
+
+    public Task<IReadOnlyList<PlayerAccessEntry>> GetWhitelistAsync() =>
+        _playerAccessService.LoadWhitelistAsync();
+
+    public Task<IReadOnlyList<PlayerIdentityEntry>> GetPlayerIdentityCacheAsync() =>
+        _playerAccessService.LoadIdentityCacheAsync();
+
+    public async Task UpdatePlayerAccessModeAsync(
+        PlayerAccessMode mode)
+    {
+        if (Settings.PlayerAccessMode == mode)
+            return;
+
+        var previousMode =
+            Settings.PlayerAccessMode;
+
+        Settings.PlayerAccessMode = mode;
+
+        try
+        {
+            await _settingsService.SavePlayerAccessModeAsync(Settings);
+        }
+        catch
+        {
+            Settings.PlayerAccessMode = previousMode;
+            OnPropertyChanged(nameof(PlayerAccessMode));
+            throw;
+        }
+
+        OnPropertyChanged(nameof(PlayerAccessMode));
+
+        AddToolMessage(
+            $"Player access control mode: {mode}.");
+
+        RefreshPlayerRoster();
+        await EvaluatePlayerAccessAsync();
+    }
+
+    public async Task ApplyPlayerAccessListsAsync(
+        IEnumerable<PlayerAccessEntry> banlist,
+        IEnumerable<PlayerAccessEntry> whitelist)
+    {
+        await _playerAccessService.SaveBanlistAsync(banlist);
+        await _playerAccessService.SaveWhitelistAsync(whitelist);
+        await ReloadPlayerAccessListsAsync();
+
+        AddToolMessage(
+            "Player access lists applied.");
+
+        RefreshPlayerRoster();
+        await EvaluatePlayerAccessAsync();
+    }
+
+    public bool CanKickPlayer(PlayerInformationLine line) =>
+        line.IsPlayerLine &&
+        _processManager.IsRunning &&
+        TryFindCurrentPlayer(line, out _);
+
+    public bool CanBanPlayer(PlayerInformationLine line) =>
+        line.IsPlayerLine &&
+        PlayerAccessService.IsValidSteamId64(line.SteamId) &&
+        TryFindCurrentPlayer(line, out _);
+
+    public async Task KickPlayerAsync(PlayerInformationLine line)
+    {
+        if (!TryFindCurrentPlayer(line, out var player))
+        {
+            throw new InvalidOperationException(
+                "The player is no longer connected.");
+        }
+
+        var safeName = SanitizePlayerName(player.Name);
+
+        if (safeName.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "The player's current character name is unavailable.");
+        }
+
+        if (!await _processManager.SendCommandAsync(
+                $"kick {safeName}",
+                _lifetimeCts.Token))
+        {
+            throw new InvalidOperationException(
+                "The kick command could not be sent to the server.");
+        }
+
+        AddToolMessage(
+            $"Manual player action: kick command sent for {safeName}.");
+    }
+
+    public async Task BanPlayerAsync(PlayerInformationLine line)
+    {
+        if (
+            !TryFindCurrentPlayer(line, out var player) ||
+            !TryResolveCurrentPlayerIdentity(player, out var identity))
+        {
+            throw new InvalidOperationException(
+                "The player's SteamID64 has not been resolved yet.");
+        }
+
+        var banlist =
+            (await _playerAccessService.LoadBanlistAsync())
+                .ToList();
+
+        var existing =
+            banlist.FirstOrDefault(
+                entry =>
+                    string.Equals(
+                        entry.SteamId,
+                        identity.SteamId,
+                        StringComparison.Ordinal));
+
+        if (existing is null)
+        {
+            banlist.Add(
+                new PlayerAccessEntry
+                {
+                    SteamId = identity.SteamId,
+                    LastKnownCharacterName = identity.CharacterName,
+                    HeroId = identity.HeroId,
+                    Note = "Added from Player Information"
+                });
+
+            await _playerAccessService.SaveBanlistAsync(banlist);
+            await ReloadPlayerAccessListsAsync();
+
+            AddToolMessage(
+                $"Player banlist: successfully added {identity.CharacterName} (SteamID64 {identity.SteamId}).");
+        }
+        else
+        {
+            AddToolMessage(
+                $"Player banlist: {identity.CharacterName} (SteamID64 {identity.SteamId}) is already listed.");
+        }
+
+        RefreshPlayerRoster();
+        await EvaluatePlayerAccessAsync();
+    }
+
+
     public string CommandText
     {
         get => _commandText;
@@ -369,7 +548,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         PlayerRosterTracker playerRosterTracker,
         ServerLogMonitor serverLogMonitor,
         ServerExecutableLocator serverExecutableLocator,
-        SaveBackupService saveBackupService)
+        SaveBackupService saveBackupService,
+        PlayerAccessService playerAccessService)
     {
         _settingsService = settingsService;
         _logService = logService;
@@ -380,6 +560,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _serverLogMonitor = serverLogMonitor;
         _serverExecutableLocator = serverExecutableLocator;
         _saveBackupService = saveBackupService;
+        _playerAccessService = playerAccessService;
 
         _dispatcher = Application.Current.Dispatcher;
 
@@ -482,6 +663,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 ? $"Save backup rotation enabled; retaining {Settings.SaveBackupCount} generation(s)."
                 : "Save backup rotation disabled.");
 
+        await ReloadPlayerAccessListsAsync();
+        AddToolMessage(
+            $"Player access control: {Settings.PlayerAccessMode}. " +
+            $"Banlist {_bannedSteamIds.Count}; whitelist {_whitelistedSteamIds.Count}.");
+
         _schedulerTask = RunSchedulerLoopAsync(_lifetimeCts.Token);
 
         // First launch is always manual. Scheduled restarts and optional crash
@@ -496,7 +682,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
     ///
     /// Notice that "process started" is NOT the same as "server ready".
     /// After startup we move into WaitingForReady and wait until the live
-    /// dedicated-server log reports the configured ready marker/state.
+    /// dedicated-server log reports the structured SERVING state.
     /// </summary>
     private async Task StartServerAsync()
     {
@@ -813,7 +999,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         ServerState = ServerState.WaitingForReady;
         StatusMessage =
-            $"Waiting for: {Settings.ReadyText}";
+            "Waiting for dedicated server state: SERVING";
 
         AddToolMessage(
             $"Server process started. PID {_processManager.ProcessId}.");
@@ -1359,10 +1545,17 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _playerRosterTracker.Reset();
 
         PlayerLines.Clear();
-        PlayerLines.Add("(no one online)");
+        PlayerLines.Add(
+            PlayerInformationLine.Detail("(no one online)"));
 
         CommandText = "";
         _availableCommands.Clear();
+
+        _controllerByHeroId.Clear();
+        _heroNameByHeroId.Clear();
+        _sessionIdentityByName.Clear();
+        _enforcedPlayerConnections.Clear();
+        _lastHeroListRequestUtc = DateTime.MinValue;
 
         OnPropertyChanged(nameof(PlayersHeaderText));
     }
@@ -1380,15 +1573,93 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         if (_playerRosterTracker.PlayerCount <= 0)
         {
-            PlayerLines.Add("(no one online)");
+            PlayerLines.Add(
+                PlayerInformationLine.Detail("(no one online)"));
             return;
         }
 
-        foreach (var playerLine in _playerRosterTracker.RosterLines)
+        foreach (var player in _playerRosterTracker.Players)
         {
-            PlayerLines.Add(playerLine);
+            var idPrefix =
+                player.Id >= 0
+                    ? $"[{player.Id}] "
+                    : "";
+
+            if (TryResolveCurrentPlayerIdentity(
+                    player,
+                    out var identity))
+            {
+                PlayerLines.Add(
+                    PlayerInformationLine.Player(
+                        $"{idPrefix}{player.Name} — {player.State}",
+                        player.Id,
+                        player.Name,
+                        identity.SteamId));
+
+                PlayerLines.Add(
+                    PlayerInformationLine.Detail(
+                        $"    SteamID: {identity.SteamId}",
+                        identity.SteamId,
+                        canCopySteamId: true));
+
+                PlayerLines.Add(
+                    PlayerInformationLine.Detail(
+                        $"    Access: {GetAccessDisplay(identity.SteamId)}"));
+            }
+            else
+            {
+                PlayerLines.Add(
+                    PlayerInformationLine.Player(
+                        $"{idPrefix}{player.Name} — {player.State}",
+                        player.Id,
+                        player.Name));
+
+                PlayerLines.Add(
+                    PlayerInformationLine.Detail(
+                        "    SteamID: Pending identity"));
+
+                PlayerLines.Add(
+                    PlayerInformationLine.Detail(
+                        Settings.PlayerAccessMode == PlayerAccessMode.None
+                            ? "    Access: None"
+                            : "    Access: Pending identity"));
+            }
         }
     }
+
+    private bool TryFindCurrentPlayer(
+        PlayerInformationLine line,
+        out PlayerRosterEntry player)
+    {
+        var match =
+            _playerRosterTracker.Players.FirstOrDefault(
+                candidate =>
+                    line.PlayerId >= 0
+                        ? candidate.Id == line.PlayerId &&
+                          string.Equals(
+                              candidate.Name,
+                              line.CharacterName,
+                              StringComparison.Ordinal)
+                        : string.Equals(
+                            candidate.Name,
+                            line.CharacterName,
+                            StringComparison.Ordinal));
+
+        if (match is null)
+        {
+            player = null!;
+            return false;
+        }
+
+        player = match;
+        return true;
+    }
+
+    private static string SanitizePlayerName(string name) =>
+        name
+            .Replace("\r", "", StringComparison.Ordinal)
+            .Replace("\n", "", StringComparison.Ordinal)
+            .Trim();
 
 
     /// <summary>
@@ -1468,6 +1739,336 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
 
+    private async Task ReloadPlayerAccessListsAsync()
+    {
+        var banlist = await _playerAccessService.LoadBanlistAsync();
+        var whitelist = await _playerAccessService.LoadWhitelistAsync();
+
+        _bannedSteamIds.Clear();
+        _whitelistedSteamIds.Clear();
+
+        foreach (var entry in banlist)
+        {
+            if (PlayerAccessService.IsValidSteamId64(entry.SteamId))
+                _bannedSteamIds.Add(entry.SteamId);
+        }
+
+        foreach (var entry in whitelist)
+        {
+            if (PlayerAccessService.IsValidSteamId64(entry.SteamId))
+                _whitelistedSteamIds.Add(entry.SteamId);
+        }
+    }
+
+
+    private string GetAccessDisplay(string steamId)
+    {
+        return Settings.PlayerAccessMode switch
+        {
+            PlayerAccessMode.Banlist =>
+                _bannedSteamIds.Contains(steamId)
+                    ? "Banned"
+                    : "Allowed",
+
+            PlayerAccessMode.Whitelist =>
+                _whitelistedSteamIds.Contains(steamId)
+                    ? "Whitelisted"
+                    : "Not whitelisted",
+
+            _ => "None"
+        };
+    }
+
+
+    private bool TryResolveCurrentPlayerIdentity(
+        PlayerRosterEntry player,
+        out SessionPlayerIdentity identity)
+    {
+        identity = default!;
+
+        if (string.IsNullOrWhiteSpace(player.Name) ||
+            string.Equals(
+                player.Name,
+                "(joining)",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return _sessionIdentityByName.TryGetValue(
+            player.Name.Trim(),
+            out identity!);
+    }
+
+
+    /// <summary>
+    /// Reloads HeroId -> ControllerId from the active save JSON. If requested,
+    /// also asks the server for a fresh HeroId -> character-name listing.
+    /// </summary>
+    private async Task RefreshPlayerIdentityEvidenceAsync(
+        bool requestHeroList)
+    {
+        if (_applicationClosing)
+            return;
+
+        try
+        {
+            var saveMap =
+                await _playerAccessService.LoadActiveSavePlayerMapAsync();
+
+            _controllerByHeroId.Clear();
+
+            foreach (var pair in saveMap)
+            {
+                _controllerByHeroId[pair.Key] = pair.Value;
+            }
+
+            await RebuildSessionIdentitiesAsync();
+        }
+        catch (FileNotFoundException)
+        {
+            // A brand-new server/save can legitimately have no companion JSON
+            // yet. Leave players pending until a later successful save.
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+        catch (JsonException ex)
+        {
+            AddToolMessage(
+                $"Could not read player identities from the active save yet: {ex.Message}");
+        }
+        catch (IOException ex)
+        {
+            AddToolMessage(
+                $"Could not read player identities from the active save yet: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            AddToolMessage(
+                $"Player identity refresh failed: {ex.Message}");
+        }
+
+        if (requestHeroList)
+        {
+            await RequestHeroListRefreshAsync();
+        }
+    }
+
+
+    private async Task RequestHeroListRefreshAsync()
+    {
+        if (_applicationClosing ||
+            !_processManager.IsRunning ||
+            !_serverReady)
+        {
+            return;
+        }
+
+        // Player snapshots can arrive very frequently while loading. One hero
+        // list every few seconds is sufficient to discover a newly-created Hero.
+        if (DateTime.UtcNow - _lastHeroListRequestUtc < TimeSpan.FromSeconds(5))
+            return;
+
+        _lastHeroListRequestUtc = DateTime.UtcNow;
+
+        if (await _processManager.SendCommandAsync(
+                "coop.debug.hero.list",
+                _lifetimeCts.Token))
+        {
+            AddToolMessage("Refreshing player identity mapping...");
+        }
+    }
+
+
+    private async Task RebuildSessionIdentitiesAsync()
+    {
+        var candidates =
+            new Dictionary<string, List<SessionPlayerIdentity>>(
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var controllerPair in _controllerByHeroId)
+        {
+            if (!_heroNameByHeroId.TryGetValue(
+                    controllerPair.Key,
+                    out var characterName) ||
+                string.IsNullOrWhiteSpace(characterName))
+            {
+                continue;
+            }
+
+            var identity =
+                new SessionPlayerIdentity(
+                    controllerPair.Value,
+                    controllerPair.Key,
+                    characterName.Trim());
+
+            if (!candidates.TryGetValue(
+                    identity.CharacterName,
+                    out var matching))
+            {
+                matching = new List<SessionPlayerIdentity>();
+                candidates[identity.CharacterName] = matching;
+            }
+
+            matching.Add(identity);
+        }
+
+        _sessionIdentityByName.Clear();
+
+        foreach (var candidate in candidates)
+        {
+            // Name matching is used only as the final bridge from @DS@ players
+            // to a HeroId. If two current player Heroes share the same name,
+            // identity is ambiguous and access enforcement remains pending.
+            if (candidate.Value.Count != 1)
+                continue;
+
+            var identity = candidate.Value[0];
+            _sessionIdentityByName[candidate.Key] = identity;
+
+            await _playerAccessService.UpsertIdentityAsync(
+                identity.SteamId,
+                identity.HeroId,
+                identity.CharacterName);
+        }
+
+        RefreshPlayerRoster();
+        await EvaluatePlayerAccessAsync();
+    }
+
+
+    private async Task EvaluatePlayerAccessAsync()
+    {
+        if (_applicationClosing ||
+            Settings.PlayerAccessMode == PlayerAccessMode.None ||
+            !_processManager.IsRunning)
+        {
+            return;
+        }
+
+        await _accessControlLock.WaitAsync();
+
+        try
+        {
+            var currentConnectionKeys =
+                _playerRosterTracker.Players
+                    .Select(GetPlayerConnectionKey)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _enforcedPlayerConnections.RemoveWhere(
+                key => !currentConnectionKeys.Contains(key));
+
+            var unresolvedNamedPlayerExists = false;
+
+            foreach (var player in _playerRosterTracker.Players)
+            {
+                if (!TryResolveCurrentPlayerIdentity(player, out var identity))
+                {
+                    if (!string.IsNullOrWhiteSpace(player.Name) &&
+                        !string.Equals(
+                            player.Name,
+                            "(joining)",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        unresolvedNamedPlayerExists = true;
+                    }
+
+                    // Creating-character/unresolved players are intentionally
+                    // pending in BOTH modes. In whitelist mode this prevents a
+                    // legitimate allowed player from being kicked simply
+                    // because the server has not persisted their identity yet.
+                    continue;
+                }
+
+                var shouldKick = Settings.PlayerAccessMode switch
+                {
+                    PlayerAccessMode.Banlist =>
+                        _bannedSteamIds.Contains(identity.SteamId),
+
+                    PlayerAccessMode.Whitelist =>
+                        !_whitelistedSteamIds.Contains(identity.SteamId),
+
+                    _ => false
+                };
+
+                if (!shouldKick)
+                    continue;
+
+                var connectionKey = GetPlayerConnectionKey(player);
+
+                if (_enforcedPlayerConnections.Contains(connectionKey))
+                    continue;
+
+                // The server command syntax is: kick + current character name.
+                // Strip line breaks defensively; @DS@ names are otherwise sent
+                // exactly as reported, including spaces.
+                var safeName =
+                    SanitizePlayerName(player.Name);
+
+                if (safeName.Length == 0)
+                    continue;
+
+                if (await _processManager.SendCommandAsync(
+                        $"kick {safeName}",
+                        _lifetimeCts.Token))
+                {
+                    _enforcedPlayerConnections.Add(connectionKey);
+
+                    var accessRule =
+                        Settings.PlayerAccessMode == PlayerAccessMode.Banlist
+                            ? "Banlist (SteamID64 is banned)"
+                            : "Whitelist (SteamID64 is not whitelisted)";
+
+                    AddToolMessage(
+                        $"Access denied: kicked {safeName} (SteamID64 {identity.SteamId}). Rule: {accessRule}.");
+                }
+            }
+
+            if (unresolvedNamedPlayerExists)
+            {
+                await RequestHeroListRefreshAsync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            AddToolMessage(
+                $"Player access enforcement failed: {ex.Message}");
+        }
+        finally
+        {
+            _accessControlLock.Release();
+        }
+    }
+
+
+    private static string GetPlayerConnectionKey(PlayerRosterEntry player) =>
+        $"{player.Id}|{player.Address}|{player.Name}";
+
+
+    private static bool TryParseHeroListLine(
+        string line,
+        out string heroId,
+        out string characterName)
+    {
+        heroId = "";
+        characterName = "";
+
+        var match = HeroListLineRegex.Match(line);
+
+        if (!match.Success)
+            return false;
+
+        heroId = match.Groups["id"].Value.Trim();
+        characterName = match.Groups["name"].Value.Trim();
+
+        return heroId.Length > 0 && characterName.Length > 0;
+    }
+
+
     /// <summary>
     /// Returns complete rotating backups for the currently configured save.
     /// </summary>
@@ -1538,8 +2139,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         var structuredEvents =
             new List<string>();
 
-        var readyTextDetected =
-            false;
+        var heroListEntries =
+            new List<(string HeroId, string CharacterName)>();
 
         var successfulSaveCount =
             0;
@@ -1549,17 +2150,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         foreach (var line in e.Lines)
         {
-            if (
-                !readyTextDetected &&
-                !string.IsNullOrWhiteSpace(
-                    Settings.ReadyText) &&
-                line.Contains(
-                    Settings.ReadyText,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                readyTextDetected = true;
-            }
-
             if (
                 line.Contains(
                     SuccessfulSaveMarker,
@@ -1575,6 +2165,19 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     StringComparison.OrdinalIgnoreCase))
             {
                 launcherUnexpectedExitDetected = true;
+            }
+
+            if (TryParseHeroListLine(
+                    line,
+                    out var heroId,
+                    out var characterName))
+            {
+                heroListEntries.Add((heroId, characterName));
+
+                // coop.debug.hero.list can emit hundreds of rows. BCS Tool
+                // consumes those rows as identity data rather than flooding
+                // the user-facing Server Console with internal lookup output.
+                continue;
             }
 
             var markerIndex =
@@ -1605,6 +2208,17 @@ public sealed class MainViewModel : BindableBase, IDisposable
                         json);
                 }
 
+                if (heroListEntries.Count > 0)
+                {
+                    foreach (var entry in heroListEntries)
+                    {
+                        _heroNameByHeroId[entry.HeroId] =
+                            entry.CharacterName;
+                    }
+
+                    _ = RebuildSessionIdentitiesAsync();
+                }
+
                 for (
                     var saveIndex = 0;
                     saveIndex < successfulSaveCount;
@@ -1613,9 +2227,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     _ = CreateSaveBackupAfterSuccessfulSaveAsync();
                 }
 
-                if (readyTextDetected)
+                if (successfulSaveCount > 0)
                 {
-                    MarkServerReadyFromLog();
+                    _ = RefreshPlayerIdentityEvidenceAsync(
+                        requestHeroList: true);
                 }
 
                 if (launcherUnexpectedExitDetected)
@@ -1724,6 +2339,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
                             players))
                     {
                         RefreshPlayerRoster();
+                        _ = EvaluatePlayerAccessAsync();
                     }
                     break;
 
@@ -1773,7 +2389,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 "serving",
                 StringComparison.OrdinalIgnoreCase))
         {
-            MarkServerReadyFromLog();
+            MarkServerReadyFromServingState();
             return;
         }
 
@@ -1789,7 +2405,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
 
-    private void MarkServerReadyFromLog()
+    private void MarkServerReadyFromServingState()
     {
         if (
             _serverReady ||
@@ -1805,9 +2421,12 @@ public sealed class MainViewModel : BindableBase, IDisposable
         StatusMessage = "Server is online and ready.";
 
         AddToolMessage(
-            $"SERVER READY detected: {Settings.ReadyText}");
+            "SERVER READY: dedicated server state is SERVING.");
 
         RecalculateNextRestart();
+
+        _ = RefreshPlayerIdentityEvidenceAsync(
+            requestHeroList: true);
     }
 
 
@@ -2377,7 +2996,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private void AddToolMessage(string message)
     {
         _logService.Write(message);
-        AddConsoleLine($"[BCS Tool] {message}");
+        AddConsoleLine(
+            BcsToolConsoleLine.FromMessage(message));
     }
 
     /// <summary>
@@ -2389,7 +3009,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// The collection is capped at 5,000 lines so a server running for days
     /// does not grow UI memory without limit.
     /// </summary>
-    private void AddConsoleLine(string line)
+    private void AddConsoleLine(BcsToolConsoleLine line)
     {
         if (!_dispatcher.CheckAccess())
         {
@@ -2455,6 +3075,12 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _processManager.ForceCleanupManagedTree();
     }
 
+    private sealed record SessionPlayerIdentity(
+        string SteamId,
+        string HeroId,
+        string CharacterName);
+
+
     public void Dispose()
     {
         _applicationClosing = true;
@@ -2475,6 +3101,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _serverLogMonitor.Dispose();
         _processManager.Dispose();
         _operationLock.Dispose();
+        _accessControlLock.Dispose();
         _lifetimeCts.Dispose();
     }
 }

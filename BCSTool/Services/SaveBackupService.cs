@@ -37,6 +37,7 @@ public sealed class SaveBackupService
     public const int CrashBackupGeneration = 0;
     public const int MinimumBackupCount = 1;
     public const int MaximumBackupCount = 5;
+    private const int NativePerWorldBackupCount = 2;
 
     private readonly CoopConfigService _configService;
     private readonly SemaphoreSlim _rotationLock = new(1, 1);
@@ -141,6 +142,10 @@ public sealed class SaveBackupService
                     newestBackupPair.JsonPath,
                     sourceSnapshot.Json))
             {
+                await RemoveNativePerWorldBackupsAsync(
+                    activePair.BaseName,
+                    cancellationToken);
+
                 return null;
             }
 
@@ -183,6 +188,14 @@ public sealed class SaveBackupService
             DeleteBeyondRetention(
                 activePair.BaseName,
                 retentionCount);
+
+            // Bannerlord Coop independently keeps two per-world autosave
+            // backups beside the active save. Once BCS Tool has safely stored
+            // its own retained copy in BCS Backups, remove those duplicate
+            // root-level pairs so Game Saves contains only the active save.
+            await RemoveNativePerWorldBackupsAsync(
+                activePair.BaseName,
+                cancellationToken);
 
             return
                 new SaveBackupResult(
@@ -780,6 +793,53 @@ public sealed class SaveBackupService
                 Path.Combine(
                     CrashBackupDirectory,
                     baseName + ".crashbackup.json"));
+    }
+
+    private async Task RemoveNativePerWorldBackupsAsync(
+        string baseName,
+        CancellationToken cancellationToken)
+    {
+        for (
+            var generation = 1;
+            generation <= NativePerWorldBackupCount;
+            generation++)
+        {
+            var nativeBaseName =
+                $"{baseName}.backup{generation}";
+
+            var nativePair =
+                new SaveFilePair(
+                    baseName,
+                    Path.Combine(
+                        GameSavesDirectory,
+                        nativeBaseName + ".sav"),
+                    Path.Combine(
+                        GameSavesDirectory,
+                        nativeBaseName + ".json"));
+
+            for (var attempt = 1; attempt <= 4; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    DeletePair(nativePair);
+                    break;
+                }
+                catch (IOException) when (attempt < 4)
+                {
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(250),
+                        cancellationToken);
+                }
+                catch (UnauthorizedAccessException) when (attempt < 4)
+                {
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(250),
+                        cancellationToken);
+                }
+            }
+        }
     }
 
     private void DeleteBeyondRetention(
