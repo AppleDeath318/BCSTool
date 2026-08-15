@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
 using BCSTool.Models;
 using Microsoft.Win32;
@@ -19,8 +21,8 @@ namespace BCSTool.Services;
 /// - Settings survive replacing/updating BCS Tool.exe.
 /// - No visible settings.json file is needed beside the executable.
 ///
-/// The rest of the application still talks to this service through
-/// LoadAsync(...) and SaveAsync(...), so changing the storage mechanism does
+/// The rest of the application still talks to this service through focused
+/// load/save methods, so changing the storage mechanism does
 /// not require the UI or server-management code to understand Registry APIs.
 /// </summary>
 public sealed class SettingsService
@@ -192,12 +194,6 @@ public sealed class SettingsService
                 nameof(ServerSettings.ServerPort),
                 settings.ServerPort);
 
-        settings.AutoRestartOnCrash =
-            ReadBool(
-                key,
-                nameof(ServerSettings.AutoRestartOnCrash),
-                settings.AutoRestartOnCrash);
-
         // LEGACY BCS SAVE BACKUPS (disabled): Registry values from the custom
         // rotation feature are intentionally no longer loaded.
 #if false
@@ -235,6 +231,9 @@ public sealed class SettingsService
                 nameof(ServerSettings.BroadcastRestarting),
                 settings.BroadcastRestarting);
 
+        settings.ScheduledBroadcasts =
+            ReadScheduledBroadcasts(key);
+
         return Task.FromResult(settings);
     }
 
@@ -244,7 +243,7 @@ public sealed class SettingsService
     ///
     /// This is intentionally separate from restart settings so choosing or
     /// auto-detecting BannerlordCoopServer.exe persists immediately without
-    /// depending on the Restart Settings UI.
+    /// depending on the Restart Schedule UI.
     /// </summary>
     public Task SaveServerExecutableAsync(
         ServerSettings settings)
@@ -275,7 +274,7 @@ public sealed class SettingsService
 
 
     /// <summary>
-    /// Saves only the settings controlled by the Restart Settings panel.
+    /// Saves only the settings controlled by the Restart Schedule window.
     ///
     /// Server executable selection is deliberately not written here.
     /// </summary>
@@ -308,10 +307,31 @@ public sealed class SettingsService
             nameof(ServerSettings.WarningMinutesBefore),
             settings.WarningMinutesBefore);
 
-        WriteBool(
+        return Task.CompletedTask;
+    }
+
+
+    /// <summary>
+    /// Saves the independently scheduled server announcements as one JSON
+    /// Registry value so the list survives executable updates.
+    /// </summary>
+    public Task SaveScheduledBroadcastsAsync(
+        ServerSettings settings)
+    {
+        using var key =
+            Registry.CurrentUser.CreateSubKey(
+                RegistryPath,
+                writable: true);
+
+        if (key is null)
+        {
+            throw new InvalidOperationException(
+                "Could not create or open the BCS Tool Registry settings key.");
+        }
+
+        WriteScheduledBroadcasts(
             key,
-            nameof(ServerSettings.AutoRestartOnCrash),
-            settings.AutoRestartOnCrash);
+            settings.ScheduledBroadcasts);
 
         return Task.CompletedTask;
     }
@@ -383,8 +403,8 @@ public sealed class SettingsService
     /// Saves all current settings to the Registry.
     ///
     /// Retained for compatibility with older code paths. The current UI uses
-    /// SaveServerExecutableAsync(...) and SaveRestartSettingsAsync(...) so the
-    /// executable path and restart controls have independent persistence.
+    /// focused save methods so executable, restart, and broadcast settings
+    /// have independent persistence.
     /// </summary>
     public Task SaveAsync(ServerSettings settings)
     {
@@ -419,6 +439,10 @@ public sealed class SettingsService
             key,
             nameof(ServerSettings.BroadcastRestarting),
             settings.BroadcastRestarting);
+
+        WriteScheduledBroadcasts(
+            key,
+            settings.ScheduledBroadcasts);
 
         // Numeric values are stored as REG_DWORD.
         WriteInt(
@@ -466,14 +490,6 @@ public sealed class SettingsService
             nameof(ServerSettings.ServerPort),
             settings.ServerPort);
 
-        // Booleans are represented as REG_DWORD:
-        // 0 = false
-        // 1 = true
-        WriteBool(
-            key,
-            nameof(ServerSettings.AutoRestartOnCrash),
-            settings.AutoRestartOnCrash);
-
         // LEGACY BCS SAVE BACKUPS (disabled): do not persist the superseded
         // custom rotation settings.
 #if false
@@ -498,30 +514,6 @@ public sealed class SettingsService
 
         return Task.CompletedTask;
     }
-
-
-    /// <summary>
-    /// Deletes the entire BCS Tool settings key.
-    ///
-    /// The next LoadAsync call will therefore return a fresh ServerSettings
-    /// instance containing the built-in defaults.
-    ///
-    /// DeleteSubKeyTree(..., throwOnMissingSubKey: false) makes this safe even
-    /// if the user has never saved settings before.
-    /// </summary>
-    public Task ResetAsync()
-    {
-        Registry.CurrentUser.DeleteSubKeyTree(
-            RegistryPath,
-            throwOnMissingSubKey: false);
-
-        Registry.CurrentUser.DeleteSubKeyTree(
-            LegacyRegistryPath,
-            throwOnMissingSubKey: false);
-
-        return Task.CompletedTask;
-    }
-
 
     /// <summary>
     /// Migrates settings saved by pre-rename builds into the canonical
@@ -661,6 +653,79 @@ public sealed class SettingsService
     }
 
 
+    private static List<ScheduledBroadcastEntry> ReadScheduledBroadcasts(
+        RegistryKey key)
+    {
+        var json =
+            ReadString(
+                key,
+                nameof(ServerSettings.ScheduledBroadcasts),
+                "");
+
+        if (string.IsNullOrWhiteSpace(json))
+            return new List<ScheduledBroadcastEntry>();
+
+        try
+        {
+            var stored =
+                JsonSerializer.Deserialize<List<ScheduledBroadcastEntry>>(json)
+                ?? new List<ScheduledBroadcastEntry>();
+            var normalized = new List<ScheduledBroadcastEntry>();
+            var ids = new HashSet<Guid>();
+
+            foreach (var entry in stored)
+            {
+                if (normalized.Count >= ScheduledBroadcastEntry.MaximumEntryCount)
+                    break;
+
+                if (entry is null)
+                    continue;
+
+                var message =
+                    ScheduledBroadcastEntry.NormalizeMessage(entry.Message);
+
+                if (message.Length == 0)
+                    continue;
+
+                if (message.Length > ScheduledBroadcastEntry.MaximumMessageLength)
+                {
+                    message =
+                        message[..ScheduledBroadcastEntry.MaximumMessageLength];
+                }
+
+                var id = entry.Id;
+
+                if (id == Guid.Empty || !ids.Add(id))
+                {
+                    do
+                    {
+                        id = Guid.NewGuid();
+                    }
+                    while (!ids.Add(id));
+                }
+
+                normalized.Add(
+                    new ScheduledBroadcastEntry
+                    {
+                        Id = id,
+                        Enabled = entry.Enabled,
+                        IntervalMinutes = Math.Clamp(
+                            entry.IntervalMinutes,
+                            ScheduledBroadcastEntry.MinimumIntervalMinutes,
+                            ScheduledBroadcastEntry.MaximumIntervalMinutes),
+                        Message = message
+                    });
+            }
+
+            return normalized;
+        }
+        catch
+        {
+            return new List<ScheduledBroadcastEntry>();
+        }
+    }
+
+
     private static PlayerAccessMode ReadPlayerAccessMode(
         RegistryKey key,
         string name,
@@ -708,6 +773,17 @@ public sealed class SettingsService
             name,
             value ?? string.Empty,
             RegistryValueKind.String);
+    }
+
+
+    private static void WriteScheduledBroadcasts(
+        RegistryKey key,
+        IReadOnlyCollection<ScheduledBroadcastEntry> entries)
+    {
+        WriteString(
+            key,
+            nameof(ServerSettings.ScheduledBroadcasts),
+            JsonSerializer.Serialize(entries));
     }
 
 

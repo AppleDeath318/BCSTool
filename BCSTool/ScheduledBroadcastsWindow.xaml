@@ -1,0 +1,115 @@
+<Window x:Class="BCSTool.ScheduledBroadcastsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Scheduled Broadcasts"
+        Width="860"
+        Height="560"
+        MinWidth="700"
+        MinHeight="460"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Closing="Window_Closing">
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{DynamicResource ControlAltBackgroundBrush}"
+                BorderBrush="{DynamicResource ControlBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="9"
+                Margin="0,0,0,10">
+            <TextBlock TextWrapping="Wrap"
+                       Text="Each enabled message has its own interval. Timers begin when the server reaches SERVING and reset after a restart, crash recovery, or Apply."/>
+        </Border>
+
+        <DataGrid x:Name="BroadcastGrid"
+                  Grid.Row="1"
+                  ItemsSource="{Binding Entries}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  IsReadOnly="True"
+                  SelectionMode="Single"
+                  MouseDoubleClick="BroadcastGrid_MouseDoubleClick">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Enabled"
+                                        Binding="{Binding Enabled}"
+                                        Width="85"/>
+                <DataGridTextColumn Header="Interval (minutes)"
+                                    Binding="{Binding IntervalMinutes}"
+                                    Width="135"/>
+                <DataGridTextColumn Header="Message"
+                                    Binding="{Binding Message}"
+                                    Width="*"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <Grid Grid.Row="2"
+              Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0"
+                    Content="Add"
+                    Width="95"
+                    Margin="0,0,6,0"
+                    Click="Add_Click"/>
+            <Button Grid.Column="1"
+                    Content="Edit"
+                    Width="95"
+                    Margin="6,0"
+                    Click="Edit_Click"/>
+            <Button Grid.Column="2"
+                    Content="Remove"
+                    Width="95"
+                    Margin="6,0,0,0"
+                    Click="Remove_Click"/>
+
+            <TextBlock Grid.Column="3"
+                       x:Name="CountText"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Center"
+                       Foreground="{DynamicResource MutedForegroundBrush}"/>
+        </Grid>
+
+        <Grid Grid.Row="3"
+              Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="120"/>
+                <ColumnDefinition Width="120"/>
+                <ColumnDefinition Width="120"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       Text="Changes take effect only after Apply."
+                       Foreground="{DynamicResource MutedForegroundBrush}"
+                       VerticalAlignment="Center"/>
+            <Button Grid.Column="1"
+                    Content="Apply &amp; Close"
+                    Margin="6,0,0,0"
+                    Click="ApplyAndClose_Click"/>
+            <Button Grid.Column="2"
+                    Content="Apply"
+                    Margin="6,0,0,0"
+                    Click="Apply_Click"/>
+            <Button Grid.Column="3"
+                    Content="Close"
+                    Margin="6,0,0,0"
+                    Click="Close_Click"/>
+        </Grid>
+    </Grid>
+</Window>

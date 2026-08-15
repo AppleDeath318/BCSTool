@@ -823,6 +823,34 @@ public partial class MainWindow : Window
     }
 
 
+    private void RestartSchedule_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var window =
+            new RestartScheduleWindow(_viewModel)
+            {
+                Owner = this
+            };
+
+        window.ShowDialog();
+    }
+
+
+    private void ScheduledBroadcasts_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var window =
+            new ScheduledBroadcastsWindow(_viewModel)
+            {
+                Owner = this
+            };
+
+        window.ShowDialog();
+    }
+
+
     private void KnownPlayers_Click(
         object sender,
         RoutedEventArgs e)

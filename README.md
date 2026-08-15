@@ -4,7 +4,7 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
-**Current release:** v0.3.4
+**Current release:** v0.4.0
 
 **Author:** [Apar](https://github.com/AppleDeath318)
 
@@ -13,6 +13,7 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Manual server restart
 * Automatic scheduled restart
 * Restart warning message broadcast
+* Multiple independently scheduled server broadcasts
 * Automatic crash recovery
 * Built-in live server log console with local command input
 * SteamID64 banlist and whitelist access control (Beta)
@@ -46,8 +47,9 @@ v<version>.exe` filename.
 
 ## Updates
 
-BCS Tool checks the latest stable GitHub release once when the application
-opens. It does not repeatedly check while it remains running.
+BCS Tool checks the latest stable GitHub release when the application opens
+and refreshes that result whenever **About BCS Tool** is opened. It does not
+run a periodic background update timer.
 
 The version number in the bottom-right corner opens **About BCS Tool**. When an
 update is available, the bottom-right version link also displays the available
@@ -206,9 +208,15 @@ BCS Tool stages the selected pair and temporarily preserves the current active p
 > **Note:** Bannerlord Coop owns backup generation. BCS Tool provides only the
 > manual loader and does not perform automatic corruption detection or rollback.
 
-## Automatic Restarts
+## Advanced Scheduling
 
-BCS Tool can periodically restart the server at a configured interval and minute.
+The **Advanced Settings** section opens two dedicated scheduling windows.
+
+### Restart Schedule
+
+BCS Tool can periodically restart the server at a configured interval and
+minute. Schedule edits do not affect the active configuration until **Apply**
+or **Apply & Close** is pressed.
 
 Before a scheduled restart, it can:
 
@@ -217,7 +225,29 @@ Before a scheduled restart, it can:
 3. Wait for shutdown
 4. Restart the server
 
-Crash recovery can also restart the server automatically if the managed process exits unexpectedly. It does not create a separate BCS Tool crash backup; Bannerlord Coop's native backups remain available for manual loading.
+Crash recovery always restarts the server automatically if the managed process
+exits unexpectedly. It does not create a separate BCS Tool crash backup;
+Bannerlord Coop's native backups remain available for manual loading.
+
+### Scheduled Broadcasts
+
+The **Scheduled Broadcasts** window manages multiple recurring server messages.
+Every entry has its own enabled state, interval from 5 to 1440 minutes, and
+message content. Add, edit, or remove entries, then press **Apply** or **Apply &
+Close** to persist the list and activate the new schedules.
+
+Each timer begins when the server reaches `SERVING`. Timers reset after Apply,
+a controlled restart, or crash recovery. Missed broadcasts are not replayed.
+Messages due during the restart-warning countdown are skipped so restart
+notices remain clear. If several messages become due together, BCS Tool sends
+them sequentially with a short gap. Every attempted scheduled broadcast is
+recorded in the BCS Tool Console and timestamped log.
+
+Scheduled messages use the dedicated server command:
+
+```text
+say <message>
+```
 
 Scheduled automation becomes active only after the dedicated server's structured runtime state reports `SERVING`.
 
@@ -274,7 +304,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.3.4
+0.4.0
 ```
 
 The application version is defined in:
@@ -286,7 +316,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.3.4</Version>
+<Version>0.4.0</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -294,7 +324,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.3.4
+v0.4.0
 ```
 
 ## Development Status

@@ -1,0 +1,108 @@
+<Window x:Class="BCSTool.RestartScheduleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Restart Schedule"
+        Width="500"
+        Height="365"
+        MinWidth="460"
+        MinHeight="340"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Closing="Window_Closing">
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Restart Schedule"
+                   FontSize="20"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,12"/>
+
+        <GroupBox Grid.Row="1"
+                  Header="Scheduled Restart">
+            <Grid Margin="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="125"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0"
+                           Grid.Column="0"
+                           Text="Restart every (hours):"
+                           VerticalAlignment="Center"
+                           Margin="0,0,10,10"/>
+                <ComboBox Grid.Row="0"
+                          Grid.Column="1"
+                          ItemsSource="{Binding RestartHourOptions}"
+                          SelectedItem="{Binding RestartEveryHours}"
+                          VerticalContentAlignment="Center"
+                          Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="1"
+                           Grid.Column="0"
+                           Text="Restart at minute:"
+                           VerticalAlignment="Center"
+                           Margin="0,0,10,10"/>
+                <ComboBox Grid.Row="1"
+                          Grid.Column="1"
+                          ItemsSource="{Binding MinuteOptions}"
+                          SelectedItem="{Binding RestartMinute}"
+                          VerticalContentAlignment="Center"
+                          Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="2"
+                           Grid.Column="0"
+                           Text="Countdown warning (minutes):"
+                           VerticalAlignment="Center"
+                           Margin="0,0,10,0"/>
+                <ComboBox Grid.Row="2"
+                          Grid.Column="1"
+                          ItemsSource="{Binding WarningMinuteOptions}"
+                          SelectedItem="{Binding WarningMinutesBefore}"
+                          VerticalContentAlignment="Center"/>
+            </Grid>
+        </GroupBox>
+
+        <TextBlock Grid.Row="2"
+                   Margin="0,10,0,0"
+                   Foreground="{DynamicResource MutedForegroundBrush}"
+                   TextWrapping="Wrap"
+                   Text="Automatic crash recovery is always enabled. Changes take effect only after Apply."/>
+
+        <Grid Grid.Row="3"
+              Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="120"/>
+                <ColumnDefinition Width="120"/>
+                <ColumnDefinition Width="120"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="1"
+                    Content="Apply &amp; Close"
+                    Margin="6,0,0,0"
+                    Click="ApplyAndClose_Click"/>
+            <Button Grid.Column="2"
+                    Content="Apply"
+                    Margin="6,0,0,0"
+                    Click="Apply_Click"/>
+            <Button Grid.Column="3"
+                    Content="Close"
+                    Margin="6,0,0,0"
+                    Click="Close_Click"/>
+        </Grid>
+    </Grid>
+</Window>

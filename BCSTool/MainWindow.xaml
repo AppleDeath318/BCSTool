@@ -8,9 +8,9 @@
     Main sections:
       1. Server status
       2. Server settings
-      3. Restart settings
-      4. Manual server controls
-      5. Player control
+      3. Manual server controls
+      4. Player access control
+      5. Advanced settings
       6. Embedded server console
       7. BCS Tool console
       8. Manual command input
@@ -187,7 +187,7 @@
               1. Server Settings
               2. Server Controls
               3. Access Control (Beta)
-              4. Advance Settings
+              4. Advanced Settings
         -->
         <Grid Grid.Row="1"
               Margin="0">
@@ -268,94 +268,42 @@
                           ResizeDirection="Columns"
                           ResizeBehavior="PreviousAndNext"/>
 
-            <!-- Restart scheduling -->
+            <!-- Scheduled automation launchers -->
             <GroupBox Grid.Column="6"
-                      Header="Advance Settings">
-                <Grid Margin="10">
+                      Header="Advanced Settings">
+                <Grid Margin="9">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0"
-                          Margin="0,0,0,6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="95"/>
-                        </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="Restart Schedule"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding RestartScheduleSummary}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,5"/>
+                        <Button Content="Restart Schedule..."
+                                Click="RestartSchedule_Click"/>
+                    </StackPanel>
 
-                        <TextBlock Grid.Column="0"
-                                   Text="Restart every (hours):"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,8,0"/>
+                    <Separator Grid.Row="1"
+                               Margin="0,7"/>
 
-                        <ComboBox Grid.Column="1"
-                                  ItemsSource="{Binding RestartHourOptions}"
-                                  SelectedItem="{Binding Settings.RestartEveryHours}"
-                                  VerticalContentAlignment="Center"/>
-                    </Grid>
-
-                    <Grid Grid.Row="1"
-                          Margin="0,0,0,6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="95"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0"
-                                   Text="Restart at minute:"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,8,0"/>
-
-                        <ComboBox Grid.Column="1"
-                                  ItemsSource="{Binding MinuteOptions}"
-                                  SelectedItem="{Binding Settings.RestartMinute}"
-                                  VerticalContentAlignment="Center"/>
-                    </Grid>
-
-                    <Grid Grid.Row="2"
-                          Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="95"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0"
-                                   Text="Countdown warning (minutes):"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,8,0"/>
-
-                        <ComboBox Grid.Column="1"
-                                  ItemsSource="{Binding WarningMinuteOptions}"
-                                  SelectedItem="{Binding Settings.WarningMinutesBefore}"
-                                  VerticalContentAlignment="Center"/>
-                    </Grid>
-
-                    <CheckBox Grid.Row="3"
-                              Content="Auto-restart after crash"
-                              IsChecked="{Binding Settings.AutoRestartOnCrash}"
-                              VerticalAlignment="Center"
-                              Margin="0,0,0,10"/>
-
-                    <Grid Grid.Row="4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <Button Grid.Column="0"
-                                Content="Save Restart Settings"
-                                Command="{Binding SaveSettingsCommand}"
-                                Margin="0,0,4,0"/>
-
-                        <Button Grid.Column="1"
-                                Content="Reset Restart Defaults"
-                                Command="{Binding ResetSettingsCommand}"
-                                Margin="4,0,0,0"/>
-                    </Grid>
+                    <StackPanel Grid.Row="2">
+                        <TextBlock Text="Scheduled Broadcasts"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding ScheduledBroadcastsSummary}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,5"/>
+                        <Button Content="Scheduled Broadcasts..."
+                                Click="ScheduledBroadcasts_Click"/>
+                    </StackPanel>
                 </Grid>
             </GroupBox>
 

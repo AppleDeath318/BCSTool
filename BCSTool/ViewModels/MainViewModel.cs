@@ -117,6 +117,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
     private DateTime? _nextRestartAt;
     private string? _lastWarningKey;
+    private readonly object _scheduledBroadcastLock = new();
+    private readonly Dictionary<Guid, DateTime> _nextBroadcastAtById = new();
 
     private ServerSettings _settings = new();
     private ServerState _serverState = ServerState.Stopped;
@@ -173,15 +175,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
         PlayerInformationLine.Detail("(no one online)")
     };
 
-    public IReadOnlyList<int> RestartHourOptions { get; } =
-        Enumerable.Range(1, 24).ToArray();
-
-    public IReadOnlyList<int> MinuteOptions { get; } =
-        Enumerable.Range(0, 60).ToArray();
-
-    public IReadOnlyList<int> WarningMinuteOptions { get; } =
-        Enumerable.Range(0, 11).ToArray();
-
     // LEGACY BCS SAVE BACKUPS (disabled): custom retention choices.
 #if false
     public IReadOnlyList<int> SaveBackupCountOptions { get; } =
@@ -202,6 +195,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             {
                 OnPropertyChanged(nameof(ServerExecutableDisplay));
                 OnPropertyChanged(nameof(PlayerAccessMode));
+                OnPropertyChanged(nameof(RestartScheduleSummary));
+                OnPropertyChanged(nameof(ScheduledBroadcastsSummary));
             }
         }
     }
@@ -215,6 +210,28 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// character; that metadata is intentionally omitted from the UI.
     /// </summary>
     public string ApplicationVersion => AppVersion.DisplayName;
+
+    public string RestartScheduleSummary =>
+        Settings.RestartEveryHours == 1
+            ? $"Every hour at :{Settings.RestartMinute:00}"
+            : $"Every {Settings.RestartEveryHours} hours at :{Settings.RestartMinute:00}";
+
+    public string ScheduledBroadcastsSummary
+    {
+        get
+        {
+            var enabledCount =
+                Settings.ScheduledBroadcasts.Count(entry => entry.Enabled);
+            var totalCount = Settings.ScheduledBroadcasts.Count;
+
+            return enabledCount switch
+            {
+                0 => "No broadcasts enabled",
+                1 when totalCount == 1 => "1 broadcast enabled",
+                _ => $"{enabledCount} of {totalCount} broadcasts enabled"
+            };
+        }
+    }
 
 
     public string ServerExecutableDisplay
@@ -717,8 +734,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
     public ICommand StopCommand { get; }
     public ICommand SendCommandCommand { get; }
 
-    public ICommand SaveSettingsCommand { get; }
-    public ICommand ResetSettingsCommand { get; }
     public ICommand BrowseServerCommand { get; }
     public ICommand ClearConsoleCommand { get; }
     public ICommand OpenServerLogsCommand { get; }
@@ -786,12 +801,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
             SubmitCommandLineAsync,
             () => _processManager.IsRunning &&
                   !_applicationClosing);
-
-        SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
-
-        // Reset Settings now resets only the controls owned by the Restart
-        // Settings panel. The auto-saved server executable path is preserved.
-        ResetSettingsCommand = new AsyncRelayCommand(ResetSettingsAsync);
 
         BrowseServerCommand = new AsyncRelayCommand(BrowseServerExecutableAsync);
 
@@ -871,10 +880,14 @@ public sealed class MainViewModel : BindableBase, IDisposable
             $"Banlist {_bannedSteamIds.Count}; whitelist {_whitelistedSteamIds.Count}.",
             BcsToolMessageType.Information);
 
+        AddToolMessage(
+            $"Scheduled broadcasts: {ScheduledBroadcastsSummary}.",
+            BcsToolMessageType.Information);
+
         _schedulerTask = RunSchedulerLoopAsync(_lifetimeCts.Token);
 
-        // First launch is always manual. Scheduled restarts and optional crash
-        // recovery still work after BCS Tool has started a server, but opening
+        // First launch is always manual. Scheduled automation and automatic
+        // crash recovery work after BCS Tool has started a server, but opening
         // the application itself never launches Bannerlord.
         ServerState = ServerState.Stopped;
         StatusMessage = "Server is stopped. Press Start to launch it.";
@@ -1021,6 +1034,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
             _nextRestartAt = null;
             _lastWarningKey = null;
+            ClearScheduledBroadcastSchedule();
 
             AddToolMessage(
                 $"Restart sequence started: {reason}",
@@ -1184,6 +1198,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _serverReady = false;
         _nextRestartAt = null;
         _lastWarningKey = null;
+        ClearScheduledBroadcastSchedule();
         ResetCrashRecoverySignal();
         ResetPlayerRoster();
 
@@ -1263,12 +1278,17 @@ public sealed class MainViewModel : BindableBase, IDisposable
     {
         if (!_processManager.IsRunning)
         {
+            _serverReady = false;
+            _nextRestartAt = null;
+            _lastWarningKey = null;
+            ClearScheduledBroadcastSchedule();
             ServerState = ServerState.Stopped;
             return true;
         }
 
         _nextRestartAt = null;
         _lastWarningKey = null;
+        ClearScheduledBroadcastSchedule();
 
         ServerState = ServerState.Stopping;
         StatusMessage = "Stopping server gracefully...";
@@ -1440,12 +1460,12 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// Convenience helper translating a human-readable message into the
     /// server command: "say [message]".
     /// </summary>
-    private async Task BroadcastAsync(string message)
+    private async Task<bool> BroadcastAsync(string message)
     {
         if (string.IsNullOrWhiteSpace(message))
-            return;
+            return false;
 
-        await _processManager.SendCommandAsync(
+        return await _processManager.SendCommandAsync(
             $"say {message}",
             _lifetimeCts.Token);
     }
@@ -1558,8 +1578,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 BcsToolMessageType.Success);
         }
 
-        // Persist only the detected executable location. Restart settings are
-        // owned by the Restart Settings panel and are not written here.
+        // Persist only the detected executable location. Scheduling settings
+        // are owned by their dedicated windows and are not written here.
         try
         {
             await _settingsService.SaveServerExecutableAsync(
@@ -1585,115 +1605,178 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
 
     /// <summary>
-    /// Validates and saves only the controls shown in Restart Settings, then
-    /// immediately recalculates the next restart time.
-    ///
-    /// The server executable path is independent and is saved automatically
-    /// when detected or selected through Browse.
+    /// Applies the dedicated Restart Schedule window only after validation.
+    /// Editing the window therefore cannot alter live scheduling until Apply.
     /// </summary>
-    private async Task SaveSettingsAsync()
+    public async Task ApplyRestartScheduleAsync(
+        int restartEveryHours,
+        int restartMinute,
+        int warningMinutesBefore)
     {
-        var validation =
-            new List<string>();
-
-        if (Settings.RestartEveryHours is < 1 or > 24)
-        {
-            validation.Add(
+        if (restartEveryHours is < 1 or > 24)
+            throw new ArgumentOutOfRangeException(
+                nameof(restartEveryHours),
                 "Restart interval must be between 1 and 24 hours.");
-        }
 
-        if (Settings.RestartMinute is < 0 or > 59)
-        {
-            validation.Add(
+        if (restartMinute is < 0 or > 59)
+            throw new ArgumentOutOfRangeException(
+                nameof(restartMinute),
                 "Restart minute must be between 0 and 59.");
-        }
 
-        if (Settings.WarningMinutesBefore is < 0 or > 10)
-        {
-            validation.Add(
+        if (warningMinutesBefore is < 0 or > 10)
+            throw new ArgumentOutOfRangeException(
+                nameof(warningMinutesBefore),
                 "Restart warning lead time must be between 0 and 10 minutes.");
-        }
 
-        if (validation.Count > 0)
+        var previousRestartEveryHours = Settings.RestartEveryHours;
+        var previousRestartMinute = Settings.RestartMinute;
+        var previousWarningMinutesBefore = Settings.WarningMinutesBefore;
+
+        Settings.RestartEveryHours = restartEveryHours;
+        Settings.RestartMinute = restartMinute;
+        Settings.WarningMinutesBefore = warningMinutesBefore;
+
+        try
         {
-            StatusMessage =
-                string.Join(
-                    " ",
-                    validation);
-
-            MessageBox.Show(
-                StatusMessage,
-                "Invalid Restart Settings",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-
-            return;
+            await _settingsService.SaveRestartSettingsAsync(Settings);
         }
-
-        await _settingsService.SaveRestartSettingsAsync(
-            Settings);
+        catch
+        {
+            Settings.RestartEveryHours = previousRestartEveryHours;
+            Settings.RestartMinute = previousRestartMinute;
+            Settings.WarningMinutesBefore = previousWarningMinutesBefore;
+            throw;
+        }
 
         RecalculateNextRestart();
+        OnPropertyChanged(nameof(RestartScheduleSummary));
 
-        StatusMessage =
-            "Restart settings saved.";
+        StatusMessage = "Restart schedule applied.";
 
         AddToolMessage(
-            "Restart settings saved.",
+            $"Restart schedule applied: {RestartScheduleSummary}; " +
+            $"warning lead {Settings.WarningMinutesBefore} minute(s).",
             BcsToolMessageType.Success);
     }
 
-    /// <summary>
-    /// Restores only the Restart Settings panel to its built-in defaults and
-    /// persists those restart defaults immediately.
-    ///
-    /// The independently-saved server executable path is left untouched.
-    /// </summary>
-    private async Task ResetSettingsAsync()
+
+    public IReadOnlyList<ScheduledBroadcastEntry> GetScheduledBroadcasts() =>
+        Settings.ScheduledBroadcasts
+            .Select(CloneScheduledBroadcast)
+            .ToArray();
+
+
+    public async Task ApplyScheduledBroadcastsAsync(
+        IEnumerable<ScheduledBroadcastEntry> entries)
     {
-        var result =
-            MessageBox.Show(
-                "Reset restart settings to their built-in defaults?" +
-                "The saved server executable path will not be changed.",
-                "Reset Restart Settings",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
+        ArgumentNullException.ThrowIfNull(entries);
 
-        if (result != MessageBoxResult.Yes)
-            return;
+        var source = entries.ToArray();
 
-        var defaults =
-            new ServerSettings();
+        if (source.Length > ScheduledBroadcastEntry.MaximumEntryCount)
+        {
+            throw new ArgumentException(
+                $"No more than {ScheduledBroadcastEntry.MaximumEntryCount} scheduled broadcasts are allowed.",
+                nameof(entries));
+        }
 
-        Settings.RestartEveryHours =
-            defaults.RestartEveryHours;
+        var normalized = new List<ScheduledBroadcastEntry>();
+        var ids = new HashSet<Guid>();
 
-        Settings.RestartMinute =
-            defaults.RestartMinute;
+        foreach (var entry in source)
+        {
+            if (
+                entry.IntervalMinutes is < ScheduledBroadcastEntry.MinimumIntervalMinutes or
+                    > ScheduledBroadcastEntry.MaximumIntervalMinutes)
+            {
+                throw new ArgumentException(
+                    $"Broadcast intervals must be between " +
+                    $"{ScheduledBroadcastEntry.MinimumIntervalMinutes} and " +
+                    $"{ScheduledBroadcastEntry.MaximumIntervalMinutes} minutes.",
+                    nameof(entries));
+            }
 
-        Settings.WarningMinutesBefore =
-            defaults.WarningMinutesBefore;
+            var message =
+                ScheduledBroadcastEntry.NormalizeMessage(entry.Message);
 
-        Settings.AutoRestartOnCrash =
-            defaults.AutoRestartOnCrash;
+            if (message.Length == 0)
+            {
+                throw new ArgumentException(
+                    "Every scheduled broadcast must contain a message.",
+                    nameof(entries));
+            }
 
-        // Settings is a nested mutable object, so explicitly refresh the
-        // Restart Settings bindings after restoring its values.
-        OnPropertyChanged(
-            nameof(Settings));
+            if (message.Length > ScheduledBroadcastEntry.MaximumMessageLength)
+            {
+                throw new ArgumentException(
+                    $"Broadcast messages cannot exceed " +
+                    $"{ScheduledBroadcastEntry.MaximumMessageLength} characters.",
+                    nameof(entries));
+            }
 
-        await _settingsService.SaveRestartSettingsAsync(
-            Settings);
+            var id = entry.Id;
 
-        RecalculateNextRestart();
+            if (id == Guid.Empty || !ids.Add(id))
+            {
+                do
+                {
+                    id = Guid.NewGuid();
+                }
+                while (!ids.Add(id));
+            }
 
-        StatusMessage =
-            "Restart settings reset to defaults.";
+            normalized.Add(
+                new ScheduledBroadcastEntry
+                {
+                    Id = id,
+                    Enabled = entry.Enabled,
+                    IntervalMinutes = entry.IntervalMinutes,
+                    Message = message
+                });
+        }
+
+        List<ScheduledBroadcastEntry> previous;
+
+        lock (_scheduledBroadcastLock)
+        {
+            previous = Settings.ScheduledBroadcasts;
+            Settings.ScheduledBroadcasts = normalized;
+        }
+
+        try
+        {
+            await _settingsService.SaveScheduledBroadcastsAsync(Settings);
+        }
+        catch
+        {
+            lock (_scheduledBroadcastLock)
+            {
+                Settings.ScheduledBroadcasts = previous;
+            }
+
+            throw;
+        }
+
+        ResetScheduledBroadcastSchedule();
+        OnPropertyChanged(nameof(ScheduledBroadcastsSummary));
+
+        StatusMessage = "Scheduled broadcasts applied.";
 
         AddToolMessage(
-            "Restart settings reset to defaults.",
-            BcsToolMessageType.Action);
+            $"Scheduled broadcasts applied: {ScheduledBroadcastsSummary}.",
+            BcsToolMessageType.Success);
     }
+
+
+    private static ScheduledBroadcastEntry CloneScheduledBroadcast(
+        ScheduledBroadcastEntry entry) =>
+        new()
+        {
+            Id = entry.Id,
+            Enabled = entry.Enabled,
+            IntervalMinutes = entry.IntervalMinutes,
+            Message = entry.Message
+        };
 
 
     /// <summary>
@@ -2913,6 +2996,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
             BcsToolMessageType.Success);
 
         RecalculateNextRestart();
+        ResetScheduledBroadcastSchedule();
 
         QueuePlayerIdentityEvidenceRefresh(
             requestHeroList: true);
@@ -3180,6 +3264,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _serverReady = false;
             _nextRestartAt = null;
             _lastWarningKey = null;
+            ClearScheduledBroadcastSchedule();
             ResetPlayerRoster();
 
             ServerPidText = "-";
@@ -3253,21 +3338,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
 #if false
             await CreateCrashBackupAfterFailureAsync();
 #endif
-
-            if (!Settings.AutoRestartOnCrash)
-            {
-                _processManager.MarkUnexpectedExitHandlingComplete();
-
-                ServerState = ServerState.Stopped;
-                StatusMessage =
-                    "Crash recovery is disabled. Server remains stopped.";
-
-                AddToolMessage(
-                    "Crashed server process tree was cleaned. Automatic restart is disabled.",
-                    BcsToolMessageType.Warning);
-
-                return;
-            }
 
             while (
                 Settings.ServerPort > 0 &&
@@ -3362,12 +3432,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// <summary>
     /// Background scheduler loop.
     ///
-    /// It ticks once per second but performs automation only when:
-    ///   - the server is Ready,
-    ///   - a next-restart timestamp exists,
-    ///   - the application is not closing.
-    ///
-    /// It also ensures each minute warning is sent only once.
+    /// Restart warnings and recurring announcements share the same lightweight
+    /// one-second heartbeat, but keep independent next-run timestamps.
     /// </summary>
     private async Task RunSchedulerLoopAsync(CancellationToken cancellationToken)
     {
@@ -3383,69 +3449,195 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 if (
                     !_serverReady ||
                     ServerState != ServerState.Ready ||
-                    _nextRestartAt is null ||
                     _applicationClosing)
                 {
                     continue;
                 }
 
                 var now = DateTime.Now;
-                var remaining = _nextRestartAt.Value - now;
+                var inRestartWarningWindow = false;
 
-                if (remaining <= TimeSpan.Zero)
+                if (_nextRestartAt is { } nextRestartAt)
                 {
-                    var restartTime = _nextRestartAt.Value;
-                    _nextRestartAt = null;
-                    _lastWarningKey = null;
+                    var remaining = nextRestartAt - now;
 
-                    await _dispatcher.InvokeAsync(() =>
+                    if (remaining <= TimeSpan.Zero)
                     {
-                        AddToolMessage(
-                            $"Scheduled restart time reached: {restartTime:yyyy-MM-dd HH:mm:ss}",
-                            BcsToolMessageType.Action);
+                        _nextRestartAt = null;
+                        _lastWarningKey = null;
+                        ClearScheduledBroadcastSchedule();
 
-                        _ = RestartServerAsync("Scheduled restart");
-                    });
+                        await _dispatcher.InvokeAsync(() =>
+                        {
+                            AddToolMessage(
+                                $"Scheduled restart time reached: {nextRestartAt:yyyy-MM-dd HH:mm:ss}",
+                                BcsToolMessageType.Action);
 
-                    continue;
+                            _ = RestartServerAsync("Scheduled restart");
+                        });
+
+                        continue;
+                    }
+
+                    if (Settings.WarningMinutesBefore > 0)
+                    {
+                        var minutesRemaining =
+                            (int)Math.Ceiling(remaining.TotalMinutes);
+
+                        inRestartWarningWindow =
+                            minutesRemaining >= 1 &&
+                            minutesRemaining <= Settings.WarningMinutesBefore;
+
+                        if (inRestartWarningWindow)
+                        {
+                            var warningKey =
+                                $"{nextRestartAt:yyyyMMddHHmm}-{minutesRemaining}";
+
+                            if (warningKey != _lastWarningKey)
+                            {
+                                _lastWarningKey = warningKey;
+
+                                var warningMessage = minutesRemaining == 1
+                                    ? "Server restart in 1 minute."
+                                    : $"Server restart in {minutesRemaining} minutes.";
+
+                                await _dispatcher.InvokeAsync(() =>
+                                    AddToolMessage(
+                                        warningMessage,
+                                        BcsToolMessageType.Warning));
+
+                                await BroadcastAsync(warningMessage);
+                            }
+                        }
+                    }
                 }
 
-                if (Settings.WarningMinutesBefore <= 0)
+                var dueBroadcasts =
+                    TakeDueScheduledBroadcasts(now);
+
+                if (dueBroadcasts.Count == 0)
                     continue;
 
-                var minutesRemaining =
-                    (int)Math.Ceiling(remaining.TotalMinutes);
-
-                if (
-                    minutesRemaining < 1 ||
-                    minutesRemaining > Settings.WarningMinutesBefore)
-                {
-                    continue;
-                }
-
-                var warningKey =
-                    $"{_nextRestartAt:yyyyMMddHHmm}-{minutesRemaining}";
-
-                if (warningKey == _lastWarningKey)
-                    continue;
-
-                _lastWarningKey = warningKey;
-
-                var message = minutesRemaining == 1
-                    ? "Server restart in 1 minute."
-                    : $"Server restart in {minutesRemaining} minutes.";
-
-                await _dispatcher.InvokeAsync(() =>
+                if (inRestartWarningWindow)
                 {
                     AddToolMessage(
-                        message,
-                        BcsToolMessageType.Warning);
-                    _ = BroadcastAsync(message);
-                });
+                        $"Skipped {dueBroadcasts.Count} scheduled broadcast(s) during the restart countdown.",
+                        BcsToolMessageType.Information);
+                    continue;
+                }
+
+                for (var index = 0; index < dueBroadcasts.Count; index++)
+                {
+                    if (
+                        !_serverReady ||
+                        ServerState != ServerState.Ready ||
+                        _applicationClosing ||
+                        (_nextRestartAt is { } upcomingRestart &&
+                         upcomingRestart - DateTime.Now <= TimeSpan.FromMinutes(1)))
+                    {
+                        break;
+                    }
+
+                    if (index > 0)
+                    {
+                        await Task.Delay(
+                            TimeSpan.FromSeconds(1),
+                            cancellationToken);
+                    }
+
+                    await SendScheduledBroadcastAsync(
+                        dueBroadcasts[index]);
+                }
             }
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+
+    private IReadOnlyList<ScheduledBroadcastEntry> TakeDueScheduledBroadcasts(
+        DateTime now)
+    {
+        var due = new List<ScheduledBroadcastEntry>();
+
+        lock (_scheduledBroadcastLock)
+        {
+            foreach (var entry in Settings.ScheduledBroadcasts)
+            {
+                if (!entry.Enabled)
+                    continue;
+
+                if (!_nextBroadcastAtById.TryGetValue(entry.Id, out var next))
+                {
+                    _nextBroadcastAtById[entry.Id] =
+                        now.AddMinutes(entry.IntervalMinutes);
+                    continue;
+                }
+
+                if (next > now)
+                    continue;
+
+                // Advance before sending. A failed command is retried at the
+                // next full interval instead of being spammed every second.
+                _nextBroadcastAtById[entry.Id] =
+                    now.AddMinutes(entry.IntervalMinutes);
+                due.Add(CloneScheduledBroadcast(entry));
+            }
+        }
+
+        return due;
+    }
+
+
+    private async Task SendScheduledBroadcastAsync(
+        ScheduledBroadcastEntry entry)
+    {
+        var sent = await BroadcastAsync(entry.Message);
+
+        AddToolMessage(
+            sent
+                ? $"Scheduled broadcast sent (every {entry.IntervalMinutes} minutes): {entry.Message}"
+                : $"Scheduled broadcast could not be sent: {entry.Message}",
+            sent
+                ? BcsToolMessageType.Action
+                : BcsToolMessageType.Warning);
+    }
+
+
+    private void ResetScheduledBroadcastSchedule()
+    {
+        lock (_scheduledBroadcastLock)
+        {
+            _nextBroadcastAtById.Clear();
+
+            if (
+                !_serverReady ||
+                ServerState != ServerState.Ready ||
+                _applicationClosing)
+            {
+                return;
+            }
+
+            var now = DateTime.Now;
+
+            foreach (var entry in Settings.ScheduledBroadcasts)
+            {
+                if (entry.Enabled)
+                {
+                    _nextBroadcastAtById[entry.Id] =
+                        now.AddMinutes(entry.IntervalMinutes);
+                }
+            }
+        }
+    }
+
+
+    private void ClearScheduledBroadcastSchedule()
+    {
+        lock (_scheduledBroadcastLock)
+        {
+            _nextBroadcastAtById.Clear();
         }
     }
 
@@ -3552,6 +3744,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
     {
         _applicationClosing = true;
         _nextRestartAt = null;
+        ClearScheduledBroadcastSchedule();
 
         if (!_processManager.IsRunning)
             return true;

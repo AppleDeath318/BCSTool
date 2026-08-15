@@ -40,10 +40,6 @@ public sealed class ServerSettings
     // Do NOT guess this value from unrelated console forwarding messages.
     public int ServerPort { get; set; } = 0;
 
-    // The first server launch is always manual. Opening BCS Tool never
-    // launches BannerlordCoopServer.exe by itself.
-    public bool AutoRestartOnCrash { get; set; } = true;
-
     // LEGACY BCS SAVE BACKUPS (disabled): Bannerlord Coop now owns native
     // per-world backup rotation. Retained only for historical source reference.
 #if false
@@ -57,6 +53,10 @@ public sealed class ServerSettings
 
     public string BroadcastSaving { get; set; } = "Saving Files...";
     public string BroadcastRestarting { get; set; } = "Restarting...";
+
+    // Multiple independent recurring announcements. Each interval begins
+    // when the dedicated server reaches SERVING.
+    public List<ScheduledBroadcastEntry> ScheduledBroadcasts { get; set; } = new();
 
     /// <summary>
     /// Resolves the effective server directory.
