@@ -25,6 +25,7 @@ public partial class App : Application
     private SingleInstanceGuard? _legacySingleInstance;
     private MainViewModel? _viewModel;
     private UpdateService? _updateService;
+    private GitHubProfileService? _githubProfileService;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -64,6 +65,7 @@ public partial class App : Application
         themeService.Initialize();
         var logService = new LogService();
         _updateService = new UpdateService(logService);
+        _githubProfileService = new GitHubProfileService();
         var portMonitor = new PortMonitor();
         var processManager = new ServerProcessManager(logService);
         var restartScheduler = new RestartScheduler();
@@ -115,6 +117,7 @@ public partial class App : Application
             _viewModel,
             coopConfigService,
             _updateService,
+            _githubProfileService,
             themeService);
         MainWindow = window;
         window.Show();
@@ -126,6 +129,7 @@ public partial class App : Application
         // wrappers before allowing the application to fully exit.
         _viewModel?.Dispose();
         _updateService?.Dispose();
+        _githubProfileService?.Dispose();
         _legacySingleInstance?.Dispose();
         _singleInstance?.Dispose();
         base.OnExit(e);

@@ -1,6 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using BCSTool.Infrastructure;
 using BCSTool.Models;
@@ -11,22 +14,83 @@ namespace BCSTool;
 public partial class AboutWindow : Window
 {
     private readonly UpdateService _updateService;
+    private readonly GitHubProfileService _githubProfileService;
     private readonly Func<bool> _isServerFullyStopped;
 
     public AboutWindow(
         UpdateService updateService,
+        GitHubProfileService githubProfileService,
         Func<bool> isServerFullyStopped)
     {
         InitializeComponent();
 
         _updateService = updateService;
+        _githubProfileService = githubProfileService;
         _isServerFullyStopped = isServerFullyStopped;
 
         VersionText.Text = $"Version {AppVersion.DisplayVersion}";
+        ApplyGitHubProfile(_githubProfileService.CachedProfile);
         _updateService.StatusChanged += UpdateService_StatusChanged;
+        Loaded += AboutWindow_Loaded;
         Closed += AboutWindow_Closed;
 
         RefreshUpdateUi();
+    }
+
+    private async void AboutWindow_Loaded(
+        object sender,
+        RoutedEventArgs e)
+    {
+        Loaded -= AboutWindow_Loaded;
+
+        var profile = await _githubProfileService.RefreshAsync();
+
+        if (IsLoaded)
+            ApplyGitHubProfile(profile);
+    }
+
+    private void ApplyGitHubProfile(
+        GitHubProfileSnapshot profile)
+    {
+        DeveloperNameText.Text = $"Developer: {profile.DisplayName}";
+        AuthorProfileLink.NavigateUri = new Uri(profile.ProfileUrl);
+        AuthorProfileLinkText.Text = $"github.com/{profile.Login}";
+
+        if (string.IsNullOrWhiteSpace(profile.AvatarPath))
+        {
+            DeveloperAvatar.Fill = null;
+            DeveloperAvatar.Visibility = Visibility.Collapsed;
+            AvatarPlaceholderText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        try
+        {
+            using var stream = new FileStream(
+                profile.AvatarPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+
+            DeveloperAvatar.Fill = new ImageBrush(bitmap)
+            {
+                Stretch = Stretch.UniformToFill
+            };
+            DeveloperAvatar.Visibility = Visibility.Visible;
+            AvatarPlaceholderText.Visibility = Visibility.Collapsed;
+        }
+        catch
+        {
+            DeveloperAvatar.Fill = null;
+            DeveloperAvatar.Visibility = Visibility.Collapsed;
+            AvatarPlaceholderText.Visibility = Visibility.Visible;
+        }
     }
 
     private async void UpdateButton_Click(

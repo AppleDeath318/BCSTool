@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly CoopConfigService _coopConfigService;
     private readonly UpdateService _updateService;
+    private readonly GitHubProfileService _githubProfileService;
     private readonly ThemeService _themeService;
 
     private readonly LiveConsoleScroller _serverConsoleScroller;
@@ -49,6 +50,7 @@ public partial class MainWindow : Window
         MainViewModel viewModel,
         CoopConfigService coopConfigService,
         UpdateService updateService,
+        GitHubProfileService githubProfileService,
         ThemeService themeService)
     {
         InitializeComponent();
@@ -57,6 +59,7 @@ public partial class MainWindow : Window
         _viewModel = viewModel;
         _coopConfigService = coopConfigService;
         _updateService = updateService;
+        _githubProfileService = githubProfileService;
         _themeService = themeService;
         DataContext = _viewModel;
 
@@ -157,6 +160,7 @@ public partial class MainWindow : Window
     {
         var window = new AboutWindow(
             _updateService,
+            _githubProfileService,
             () => _viewModel.IsServerFullyStopped)
         {
             Owner = this

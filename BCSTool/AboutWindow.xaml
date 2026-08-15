@@ -46,26 +46,40 @@
         <StackPanel Grid.Row="2"
                     Margin="0,14,0,0"
                     HorizontalAlignment="Center">
-            <TextBlock Text="Developer: Apar"
+            <TextBlock x:Name="DeveloperNameText"
+                       Text="Developer: Apar"
                        HorizontalAlignment="Center"/>
 
-            <Ellipse Width="80"
-                     Height="80"
-                     Margin="0,8,0,0"
-                     HorizontalAlignment="Center"
-                     Stroke="{DynamicResource ControlBorderBrush}"
-                     StrokeThickness="1"
-                     AutomationProperties.Name="Apar GitHub avatar">
-                <Ellipse.Fill>
-                    <ImageBrush ImageSource="Assets/AparGitHubAvatar.jpg"
-                                Stretch="UniformToFill"/>
-                </Ellipse.Fill>
-            </Ellipse>
+            <Grid Width="80"
+                  Height="80"
+                  Margin="0,8,0,0"
+                  HorizontalAlignment="Center">
+                <Ellipse Fill="{DynamicResource ControlAltBackgroundBrush}"
+                         Stroke="{DynamicResource ControlBorderBrush}"
+                         StrokeThickness="1"/>
+
+                <TextBlock x:Name="AvatarPlaceholderText"
+                           Text="?"
+                           FontSize="28"
+                           Foreground="{DynamicResource MutedForegroundBrush}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"/>
+
+                <Ellipse x:Name="DeveloperAvatar"
+                         Stroke="{DynamicResource ControlBorderBrush}"
+                         StrokeThickness="1"
+                         Visibility="Collapsed"
+                         AutomationProperties.Name="Developer GitHub avatar"/>
+            </Grid>
 
             <TextBlock Margin="0,6,0,0"
                        HorizontalAlignment="Center">
-                <Hyperlink NavigateUri="https://github.com/AppleDeath318"
-                           RequestNavigate="AuthorProfile_RequestNavigate">github.com/AppleDeath318</Hyperlink>
+                <Hyperlink x:Name="AuthorProfileLink"
+                           NavigateUri="https://github.com/AppleDeath318"
+                           RequestNavigate="AuthorProfile_RequestNavigate">
+                    <Run x:Name="AuthorProfileLinkText"
+                         Text="github.com/AppleDeath318"/>
+                </Hyperlink>
             </TextBlock>
         </StackPanel>
 
