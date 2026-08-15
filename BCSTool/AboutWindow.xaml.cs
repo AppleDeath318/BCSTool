@@ -43,7 +43,14 @@ public partial class AboutWindow : Window
     {
         Loaded -= AboutWindow_Loaded;
 
-        var profile = await _githubProfileService.RefreshAsync();
+        var profileTask = _githubProfileService.RefreshAsync();
+
+        // Opening About is an explicit user action, so refresh a previously
+        // completed "up to date" result without adding a background timer.
+        if (_updateService.State == UpdateCheckState.UpToDate)
+            await _updateService.CheckForUpdatesAsync();
+
+        var profile = await profileTask;
 
         if (IsLoaded)
             ApplyGitHubProfile(profile);
