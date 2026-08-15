@@ -5,8 +5,10 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
 ``
-**Current release:** v0.3.1.1
+**Current release:** v0.3.2
 ``
+
+**Author:** [Apar](https://github.com/AppleDeath318)
 
 ## Features
 
@@ -20,6 +22,7 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Server configuration modification
 * Mod configuration modification
 * Backup restore
+* Startup update check with verified in-app installation
 
 ## Requirements
 
@@ -39,6 +42,23 @@ BCS Tool v<version>.exe
 ```
 
 The files automatically provided by GitHub as `Source code (zip)` and `Source code (tar.gz)` contain the project source rather than the compiled application.
+
+## Updates
+
+BCS Tool checks the latest stable GitHub release once when the application
+opens. It does not repeatedly check while it remains running.
+
+The version number in the bottom-right corner opens **About BCS Tool**. Its
+update button changes with the current state: **Check for Updates**,
+**Checking...**, **Up to Date**, **Download vX.Y.Z**, or **Try Again**. When an
+update is available, the bottom-right version link also displays the available
+version.
+
+Installing an update is always user initiated and requires the managed server
+to be stopped. BCS Tool downloads both the versioned executable and its
+`.sha256` release asset, verifies the executable, closes, replaces the old
+version, and reopens. The About window also includes a link to the GitHub
+repository.
 
 ## Getting Started
 
@@ -252,7 +272,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.3.1.1
+0.3.2
 ```
 
 The application version is defined in:
@@ -264,7 +284,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.3.1.1</Version>
+<Version>0.3.2</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -272,7 +292,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.3.1.1
+v0.3.2
 ```
 
 ## Development Status

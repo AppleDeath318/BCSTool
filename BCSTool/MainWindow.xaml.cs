@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using BCSTool.Infrastructure;
 using BCSTool.Models;
 using BCSTool.Services;
 using BCSTool.ViewModels;
@@ -25,6 +26,7 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel;
     private readonly CoopConfigService _coopConfigService;
+    private readonly UpdateService _updateService;
 
     private readonly LiveConsoleScroller _serverConsoleScroller;
     private readonly LiveConsoleScroller _bcsToolConsoleScroller;
@@ -43,14 +45,21 @@ public partial class MainWindow : Window
 
     public MainWindow(
         MainViewModel viewModel,
-        CoopConfigService coopConfigService)
+        CoopConfigService coopConfigService,
+        UpdateService updateService)
     {
         InitializeComponent();
         _commandSuggestionUiReady = true;
 
         _viewModel = viewModel;
         _coopConfigService = coopConfigService;
+        _updateService = updateService;
         DataContext = _viewModel;
+
+        VersionLinkButton.Content =
+            $"ⓘ {AppVersion.DisplayName}";
+        _updateService.StatusChanged +=
+            UpdateService_StatusChanged;
 
         _serverConsoleScroller =
             new LiveConsoleScroller(
@@ -81,6 +90,60 @@ public partial class MainWindow : Window
             _viewModel.PlayerAccessMode;
 
         _playerAccessModeUiReady = true;
+
+        // Check once per launch. Failures stay unobtrusive until the user opens
+        // About BCS Tool, where the same button becomes "Try Again".
+        await _updateService.CheckForUpdatesAsync();
+    }
+
+    private void VersionLink_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var window = new AboutWindow(
+            _updateService,
+            () => _viewModel.IsServerFullyStopped)
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
+    }
+
+    private void UpdateService_StatusChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(RefreshVersionLink));
+            return;
+        }
+
+        RefreshVersionLink();
+    }
+
+    private void RefreshVersionLink()
+    {
+        if (
+            _updateService.State ==
+                UpdateCheckState.UpdateAvailable &&
+            _updateService.AvailableRelease is not null)
+        {
+            VersionLinkButton.Content =
+                $"⬆ v{_updateService.AvailableRelease.Version} available";
+            VersionLinkButton.Foreground =
+                new SolidColorBrush(Color.FromRgb(0x00, 0x67, 0xC0));
+            VersionLinkButton.ToolTip =
+                "A BCS Tool update is available. Open About BCS Tool.";
+            return;
+        }
+
+        VersionLinkButton.Content =
+            $"ⓘ {AppVersion.DisplayName}";
+        VersionLinkButton.Foreground = Brushes.Gray;
+        VersionLinkButton.ToolTip = "About BCS Tool";
     }
 
     private async void PlayerAccessMode_SelectionChanged(
@@ -860,6 +923,13 @@ public partial class MainWindow : Window
         // unwound.
         _ = Dispatcher.BeginInvoke(
             new Action(Close));
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _updateService.StatusChanged -=
+            UpdateService_StatusChanged;
+        base.OnClosed(e);
     }
 
     /// <summary>

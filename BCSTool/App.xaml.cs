@@ -24,6 +24,7 @@ public partial class App : Application
     private SingleInstanceGuard? _singleInstance;
     private SingleInstanceGuard? _legacySingleInstance;
     private MainViewModel? _viewModel;
+    private UpdateService? _updateService;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -60,6 +61,7 @@ public partial class App : Application
         // easy to understand and avoids extra NuGet dependencies.
         var settingsService = new SettingsService();
         var logService = new LogService();
+        _updateService = new UpdateService(logService);
         var portMonitor = new PortMonitor();
         var processManager = new ServerProcessManager(logService);
         var restartScheduler = new RestartScheduler();
@@ -109,7 +111,8 @@ public partial class App : Application
 
         var window = new MainWindow(
             _viewModel,
-            coopConfigService);
+            coopConfigService,
+            _updateService);
         MainWindow = window;
         window.Show();
     }
@@ -119,6 +122,7 @@ public partial class App : Application
         // Dispose long-lived objects such as timers, mutexes, and Process
         // wrappers before allowing the application to fully exit.
         _viewModel?.Dispose();
+        _updateService?.Dispose();
         _legacySingleInstance?.Dispose();
         _singleInstance?.Dispose();
         base.OnExit(e);
