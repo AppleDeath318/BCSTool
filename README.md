@@ -37,10 +37,14 @@ Download the latest compiled version from the repository's **Releases** page.
 For normal use, download:
 
 ```text
-BCS Tool v<version>.exe
+BCS.Tool.v<version>.exe
 ```
 
 The files automatically provided by GitHub as `Source code (zip)` and `Source code (tar.gz)` contain the project source rather than the compiled application.
+
+GitHub release assets use periods in the filename. After an in-app update, BCS
+Tool installs the executable locally with the friendlier `BCS Tool
+v<version>.exe` filename.
 
 ## Updates
 

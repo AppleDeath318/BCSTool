@@ -45,9 +45,12 @@ jobs:
               throw "Release tag '$actualTag' does not match project version '$projectVersion'. Expected '$expectedTag'."
           }
 
-          $releaseExeName = "BCS Tool v$projectVersion.exe"
-          "RELEASE_EXE_NAME=$releaseExeName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Release file:    $releaseExeName"
+          $publishedExeName = "BCS Tool v$projectVersion.exe"
+          $releaseAssetName = "BCS.Tool.v$projectVersion.exe"
+          "PUBLISHED_EXE_NAME=$publishedExeName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ASSET_NAME=$releaseAssetName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Published file:  $publishedExeName"
+          Write-Host "Release asset:   $releaseAssetName"
 
       - name: Publish BCS Tool
         shell: pwsh
@@ -57,7 +60,7 @@ jobs:
       - name: Verify release executable
         shell: pwsh
         run: |
-          $exe = ".\BCSTool\publish\$env:RELEASE_EXE_NAME"
+          $exe = ".\BCSTool\publish\$env:PUBLISHED_EXE_NAME"
 
           if (-not (Test-Path $exe)) {
               throw "Expected release executable was not produced: $exe"
@@ -66,14 +69,17 @@ jobs:
           Write-Host "Release executable:"
           Get-Item $exe | Format-List Name, Length, LastWriteTime
 
-      - name: Generate SHA-256 checksum
+      - name: Prepare release assets and generate SHA-256 checksum
         shell: pwsh
         run: |
-          $exe = ".\BCSTool\publish\$env:RELEASE_EXE_NAME"
-          $checksumFile = "$exe.sha256"
-          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $publishedExe = ".\BCSTool\publish\$env:PUBLISHED_EXE_NAME"
+          $releaseAsset = ".\BCSTool\publish\$env:RELEASE_ASSET_NAME"
+          Move-Item -LiteralPath $publishedExe -Destination $releaseAsset
 
-          "$hash  $env:RELEASE_EXE_NAME" |
+          $checksumFile = "$releaseAsset.sha256"
+          $hash = (Get-FileHash $releaseAsset -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          "$hash  $env:RELEASE_ASSET_NAME" |
               Set-Content -Path $checksumFile -Encoding ascii
 
           Write-Host "SHA-256:"
@@ -85,8 +91,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" `
-            ".\BCSTool\publish\$env:RELEASE_EXE_NAME" `
-            ".\BCSTool\publish\$env:RELEASE_EXE_NAME.sha256" `
+            ".\BCSTool\publish\$env:RELEASE_ASSET_NAME" `
+            ".\BCSTool\publish\$env:RELEASE_ASSET_NAME.sha256" `
             --verify-tag `
             --generate-notes `
             --title "BCS Tool ${{ github.ref_name }}"

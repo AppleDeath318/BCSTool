@@ -122,21 +122,33 @@ public sealed class UpdateService : IDisposable
                 return;
             }
 
-            var executableName =
+            var installedExecutableName =
                 $"BCS Tool v{latestVersion}.exe";
-            var checksumName =
-                $"{executableName}.sha256";
+
+            // GitHub normalizes spaces in uploaded release asset filenames to
+            // periods. Accept both forms so the updater remains compatible
+            // with GitHub-generated and manually uploaded release assets.
+            var executableAssetNames =
+                new[]
+                {
+                    $"BCS.Tool.v{latestVersion}.exe",
+                    installedExecutableName
+                };
+
+            var checksumAssetNames =
+                executableAssetNames
+                    .Select(name => $"{name}.sha256")
+                    .ToArray();
 
             var executableAsset = release.Assets.FirstOrDefault(
-                asset => string.Equals(
+                asset => executableAssetNames.Contains(
                     asset.Name,
-                    executableName,
-                    StringComparison.OrdinalIgnoreCase));
+                    StringComparer.OrdinalIgnoreCase));
+
             var checksumAsset = release.Assets.FirstOrDefault(
-                asset => string.Equals(
+                asset => checksumAssetNames.Contains(
                     asset.Name,
-                    checksumName,
-                    StringComparison.OrdinalIgnoreCase));
+                    StringComparer.OrdinalIgnoreCase));
 
             if (executableAsset is null || checksumAsset is null)
             {
@@ -149,7 +161,7 @@ public sealed class UpdateService : IDisposable
                 latestVersion,
                 release.TagName,
                 new Uri(release.HtmlUrl),
-                executableName,
+                installedExecutableName,
                 new Uri(executableAsset.BrowserDownloadUrl),
                 new Uri(checksumAsset.BrowserDownloadUrl));
 
