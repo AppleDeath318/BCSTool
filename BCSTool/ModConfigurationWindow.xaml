@@ -102,7 +102,8 @@
         </Grid>
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel>
+            <!-- Keep section borders visually separate from the scrollbar. -->
+            <StackPanel Margin="0,0,10,0">
 
                 <TextBlock Text="Bannerlord Coop Mod Configuration"
                            FontSize="20"

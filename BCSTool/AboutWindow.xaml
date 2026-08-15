@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="About BCS Tool"
         Width="430"
-        Height="335"
+        Height="430"
         MinWidth="430"
-        MinHeight="335"
+        MinHeight="430"
         Background="{DynamicResource AppBackgroundBrush}"
         Foreground="{DynamicResource AppForegroundBrush}"
         ResizeMode="NoResize"
@@ -57,7 +57,20 @@
             <TextBlock Text="Developer: Apar"
                        HorizontalAlignment="Center"/>
 
-            <TextBlock Margin="0,3,0,0"
+            <Ellipse Width="80"
+                     Height="80"
+                     Margin="0,8,0,0"
+                     HorizontalAlignment="Center"
+                     Stroke="{DynamicResource ControlBorderBrush}"
+                     StrokeThickness="1"
+                     AutomationProperties.Name="Apar GitHub avatar">
+                <Ellipse.Fill>
+                    <ImageBrush ImageSource="Assets/AparGitHubAvatar.jpg"
+                                Stretch="UniformToFill"/>
+                </Ellipse.Fill>
+            </Ellipse>
+
+            <TextBlock Margin="0,6,0,0"
                        HorizontalAlignment="Center">
                 <Hyperlink NavigateUri="https://github.com/AppleDeath318"
                            RequestNavigate="AuthorProfile_RequestNavigate">github.com/AppleDeath318</Hyperlink>

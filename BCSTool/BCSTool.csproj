@@ -22,7 +22,11 @@
     <Product>BCS Tool</Product>
     <Description>Bannerlord Coop Server management tool</Description>
     <RootNamespace>BCSTool</RootNamespace>
-	<Version>0.3.3</Version>
+	<Version>0.3.3.1</Version>
 	<PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\AparGitHubAvatar.jpg"/>
+  </ItemGroup>
 </Project>
