@@ -4,9 +4,7 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
-``
-**Current release:** v0.3.2
-``
+**Current release:** v0.3.3
 
 **Author:** [Apar](https://github.com/AppleDeath318)
 
@@ -23,6 +21,7 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Mod configuration modification
 * Backup restore
 * Startup update check with verified in-app installation
+* Persistent Light and Dark interface themes
 
 ## Requirements
 
@@ -59,6 +58,20 @@ to be stopped. BCS Tool downloads both the versioned executable and its
 `.sha256` release asset, verifies the executable, closes, replaces the old
 version, and reopens. The About window also includes a link to the GitHub
 repository.
+
+## Appearance
+
+Use the **Theme** selector in the bottom-right footer to switch between Light
+and Dark mode without restarting BCS Tool. Light mode preserves the original
+appearance. Dark mode applies across the main window and all configuration,
+access-control, player-list, backup, and About windows.
+
+Dark mode uses black Server and BCS Tool consoles with brighter semantic colors.
+BCS Tool messages are explicitly categorized as Information, Action, Success,
+Warning, or Error when they are emitted; message text, player names, and notes
+do not influence their color. Existing console lines are recolored immediately
+when the theme changes. The selected theme is saved under the normal BCS Tool
+Registry settings and restored on the next launch.
 
 ## Getting Started
 
@@ -105,7 +118,9 @@ the server, and receiving the server log and identity events.
 
 Use **Banlist/Whitelist Panel** to add or remove 17-digit SteamID64 entries and
 optional notes. The panel automatically opens the tab for the currently active
-mode. Press **Apply** or **Apply & Close** to save manual list changes.
+mode. Press **Apply** or **Apply & Close** to save manual list changes. Every
+applied change is recorded separately in the BCS Tool Console and log with its
+action, character name, Steam ID, and note.
 
 Use **Player List** to view every character name and Steam ID learned in
 `player-identities.json`. Search by character name or Steam ID, and right-click
@@ -272,7 +287,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.3.2
+0.3.3
 ```
 
 The application version is defined in:
@@ -284,7 +299,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.3.2</Version>
+<Version>0.3.3</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -292,7 +307,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.3.2
+v0.3.3
 ```
 
 ## Development Status

@@ -6,6 +6,8 @@
         Height="620"
         MinWidth="760"
         MinHeight="500"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
         WindowStartupLocation="CenterOwner"
         Loaded="Window_Loaded"
         Closing="Window_Closing">
@@ -18,8 +20,8 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
-                Background="#FFF7E6"
-                BorderBrush="#E0B45A"
+                Background="{DynamicResource WarningPanelBackgroundBrush}"
+                BorderBrush="{DynamicResource WarningPanelBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="4"
                 Padding="9"
@@ -141,7 +143,7 @@
 
             <TextBlock Grid.Column="0"
                        x:Name="StoragePathText"
-                       Foreground="Gray"
+                       Foreground="{DynamicResource MutedForegroundBrush}"
                        VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis"/>
 

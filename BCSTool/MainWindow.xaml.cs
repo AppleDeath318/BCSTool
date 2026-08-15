@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly CoopConfigService _coopConfigService;
     private readonly UpdateService _updateService;
+    private readonly ThemeService _themeService;
 
     private readonly LiveConsoleScroller _serverConsoleScroller;
     private readonly LiveConsoleScroller _bcsToolConsoleScroller;
@@ -42,11 +43,13 @@ public partial class MainWindow : Window
     private bool _suppressSuggestionRefresh;
     private bool _commandSuggestionUiReady;
     private bool _playerAccessModeUiReady;
+    private bool _themeUiReady;
 
     public MainWindow(
         MainViewModel viewModel,
         CoopConfigService coopConfigService,
-        UpdateService updateService)
+        UpdateService updateService,
+        ThemeService themeService)
     {
         InitializeComponent();
         _commandSuggestionUiReady = true;
@@ -54,10 +57,20 @@ public partial class MainWindow : Window
         _viewModel = viewModel;
         _coopConfigService = coopConfigService;
         _updateService = updateService;
+        _themeService = themeService;
         DataContext = _viewModel;
+
+        ThemeComboBox.ItemsSource =
+            _themeService.AvailableThemes;
+        ThemeComboBox.SelectedItem =
+            _themeService.CurrentTheme;
+        _themeUiReady = true;
 
         VersionLinkButton.Content =
             $"ⓘ {AppVersion.DisplayName}";
+        VersionLinkButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "MutedForegroundBrush");
         _updateService.StatusChanged +=
             UpdateService_StatusChanged;
 
@@ -72,6 +85,48 @@ public partial class MainWindow : Window
                 BcsToolConsoleList,
                 _viewModel.ConsoleLines,
                 Dispatcher);
+    }
+
+    private async void ThemeComboBox_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (
+            !_themeUiReady ||
+            ThemeComboBox.SelectedItem is not
+                ApplicationTheme selectedTheme ||
+            selectedTheme == _themeService.CurrentTheme)
+        {
+            return;
+        }
+
+        ThemeComboBox.IsEnabled = false;
+
+        try
+        {
+            await _themeService.SetThemeAsync(selectedTheme);
+
+            // Console line brushes are resolved from the active palette when
+            // bindings are evaluated. Refresh existing rows after a switch.
+            ServerConsoleList.Items.Refresh();
+            BcsToolConsoleList.Items.Refresh();
+        }
+        catch (Exception ex)
+        {
+            ThemeComboBox.SelectedItem =
+                _themeService.CurrentTheme;
+
+            MessageBox.Show(
+                this,
+                $"Could not save the application theme.\n\n{ex.Message}",
+                "Theme",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            ThemeComboBox.IsEnabled = true;
+        }
     }
 
     private async void Window_Loaded(
@@ -133,8 +188,9 @@ public partial class MainWindow : Window
         {
             VersionLinkButton.Content =
                 $"⬆ v{_updateService.AvailableRelease.Version} available";
-            VersionLinkButton.Foreground =
-                new SolidColorBrush(Color.FromRgb(0x00, 0x67, 0xC0));
+            VersionLinkButton.SetResourceReference(
+                Control.ForegroundProperty,
+                "AccentForegroundBrush");
             VersionLinkButton.ToolTip =
                 "A BCS Tool update is available. Open About BCS Tool.";
             return;
@@ -142,7 +198,9 @@ public partial class MainWindow : Window
 
         VersionLinkButton.Content =
             $"ⓘ {AppVersion.DisplayName}";
-        VersionLinkButton.Foreground = Brushes.Gray;
+        VersionLinkButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "MutedForegroundBrush");
         VersionLinkButton.ToolTip = "About BCS Tool";
     }
 

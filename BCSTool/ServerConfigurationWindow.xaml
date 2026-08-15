@@ -8,6 +8,8 @@
         Height="650"
         MinWidth="560"
         MinHeight="520"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Closing="Window_Closing">
@@ -15,7 +17,8 @@
     <Window.Resources>
         <infra:BooleanEnabledDisabledConverter x:Key="BooleanEnabledDisabledConverter"/>
 
-        <Style TargetType="Button">
+        <Style TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="MinHeight" Value="34"/>
             <Setter Property="Padding" Value="10,5"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -146,7 +149,7 @@
                                    Grid.ColumnSpan="3"
                                    Text="Load Backup uses Bannerlord Coop's native per-world backups stored beside the active save."
                                    TextWrapping="Wrap"
-                                   Foreground="Gray"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    FontSize="11"/>
                     </Grid>
                 </GroupBox>
@@ -223,7 +226,7 @@
                         <TextBlock Margin="0,7,0,0"
                                    Text="BCS Tool depends on the coop-server log file for console output and server monitoring, so this option is required and cannot be disabled."
                                    TextWrapping="Wrap"
-                                   Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+                                   Foreground="{DynamicResource MutedForegroundBrush}"/>
                     </StackPanel>
                 </GroupBox>
 

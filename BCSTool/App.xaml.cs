@@ -60,6 +60,8 @@ public partial class App : Application
         // bringing in a third-party DI framework. That keeps the application
         // easy to understand and avoids extra NuGet dependencies.
         var settingsService = new SettingsService();
+        var themeService = new ThemeService(settingsService);
+        themeService.Initialize();
         var logService = new LogService();
         _updateService = new UpdateService(logService);
         var portMonitor = new PortMonitor();
@@ -112,7 +114,8 @@ public partial class App : Application
         var window = new MainWindow(
             _viewModel,
             coopConfigService,
-            _updateService);
+            _updateService,
+            themeService);
         MainWindow = window;
         window.Show();
     }

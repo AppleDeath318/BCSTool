@@ -6,11 +6,14 @@
         Height="390"
         MinWidth="540"
         MinHeight="330"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
 
     <Window.Resources>
-        <Style TargetType="Button">
+        <Style TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="MinHeight" Value="34"/>
             <Setter Property="Padding" Value="12,5"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -80,7 +83,7 @@
                        Grid.Row="3"
                        Text="No complete native .backupN.sav/.backupN.json pairs were found for the currently configured save."
                        TextWrapping="Wrap"
-                       Foreground="Gray"
+                       Foreground="{DynamicResource MutedForegroundBrush}"
                        Margin="0,8,0,0"
                        Visibility="Collapsed"/>
         </Grid>

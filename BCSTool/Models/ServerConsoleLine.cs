@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
+using System.Windows;
 using System.Windows.Media;
 
 namespace BCSTool.Models;
@@ -16,38 +17,26 @@ public sealed class ServerConsoleLine
             RegexOptions.CultureInvariant |
             RegexOptions.Compiled);
 
-    private static readonly Brush ErrorBrush =
-        CreateBrush(0xC6, 0x28, 0x28);
-
-    private static readonly Brush WarningBrush =
-        CreateBrush(0x9A, 0x67, 0x00);
-
-    private static readonly Brush SuccessBrush =
-        CreateBrush(0x2E, 0x7D, 0x32);
-
-    private static readonly Brush ConnectingBrush =
-        CreateBrush(0x00, 0x78, 0x8A);
-
-    private static readonly Brush DisconnectedBrush =
-        CreateBrush(0xA1, 0x5C, 0x00);
-
-    private static readonly Brush LauncherBrush =
-        CreateBrush(0x6B, 0x6B, 0x6B);
-
-    private static readonly Brush NormalBrush =
-        CreateBrush(0x00, 0x00, 0x00);
-
     private ServerConsoleLine(
         string text,
-        Brush foreground)
+        string foregroundResourceKey)
     {
         Text = text;
-        Foreground = foreground;
+        ForegroundResourceKey = foregroundResourceKey;
     }
 
     public string Text { get; }
 
-    public Brush Foreground { get; }
+    private string ForegroundResourceKey { get; }
+
+    /// <summary>
+    /// Resolves the brush from the active theme whenever WPF evaluates the
+    /// binding. MainWindow refreshes existing rows after a live theme switch.
+    /// </summary>
+    public Brush Foreground =>
+        Application.Current?.TryFindResource(
+            ForegroundResourceKey) as Brush
+        ?? Brushes.Black;
 
     public static ServerConsoleLine FromText(
         string text)
@@ -55,13 +44,12 @@ public sealed class ServerConsoleLine
         return
             new ServerConsoleLine(
                 text,
-                ClassifyForeground(text));
+                ClassifyForegroundResource(text));
     }
 
-    private static Brush ClassifyForeground(
+    private static string ClassifyForegroundResource(
         string line)
     {
-        // Severe conditions take priority over every presentation category.
         if (
             line.Contains(
                 "FATAL",
@@ -73,18 +61,18 @@ public sealed class ServerConsoleLine
                 "Exception",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return ErrorBrush;
+            return "ConsoleErrorBrush";
         }
 
         if (WarningTokenRegex.IsMatch(line))
-            return WarningBrush;
+            return "ConsoleWarningBrush";
 
         if (
             line.Contains(
                 "Successfully saved",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return SuccessBrush;
+            return "ConsoleSuccessBrush";
         }
 
         if (
@@ -92,7 +80,7 @@ public sealed class ServerConsoleLine
                 "player connecting",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return ConnectingBrush;
+            return "ConsoleConnectingBrush";
         }
 
         if (
@@ -100,17 +88,15 @@ public sealed class ServerConsoleLine
                 "player disconnected",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return DisconnectedBrush;
+            return "ConsoleDisconnectedBrush";
         }
 
-        // Launcher diagnostics are intentionally subdued even when they contain
-        // words such as "ready" in explanatory/autocomplete messages.
         if (
             line.Contains(
                 "[launcher]",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return LauncherBrush;
+            return "ConsoleMutedBrush";
         }
 
         if (
@@ -121,25 +107,9 @@ public sealed class ServerConsoleLine
                 "server ready",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return SuccessBrush;
+            return "ConsoleSuccessBrush";
         }
 
-        return NormalBrush;
-    }
-
-    private static Brush CreateBrush(
-        byte red,
-        byte green,
-        byte blue)
-    {
-        var brush =
-            new SolidColorBrush(
-                Color.FromRgb(
-                    red,
-                    green,
-                    blue));
-
-        brush.Freeze();
-        return brush;
+        return "ConsoleForegroundBrush";
     }
 }

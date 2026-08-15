@@ -351,7 +351,7 @@ public sealed class PlayerAccessService
             overwrite: true);
     }
 
-    private static IReadOnlyList<PlayerAccessEntry> NormalizeAccessEntries(
+    internal static IReadOnlyList<PlayerAccessEntry> NormalizeAccessEntries(
         IEnumerable<PlayerAccessEntry> entries)
     {
         return entries

@@ -6,6 +6,8 @@
         Height="620"
         MinWidth="900"
         MinHeight="440"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
         WindowStartupLocation="CenterOwner"
         Loaded="Window_Loaded">
     <Grid Margin="14">
@@ -17,8 +19,8 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
-                Background="#FFF7E6"
-                BorderBrush="#E0B45A"
+                Background="{DynamicResource WarningPanelBackgroundBrush}"
+                BorderBrush="{DynamicResource WarningPanelBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="4"
                 Padding="9"
@@ -168,7 +170,7 @@
             <TextBlock x:Name="StatusText"
                        Grid.Column="1"
                        VerticalAlignment="Center"
-                       Foreground="Gray"
+                       Foreground="{DynamicResource MutedForegroundBrush}"
                        TextTrimming="CharacterEllipsis"/>
 
             <Button x:Name="RefreshButton"

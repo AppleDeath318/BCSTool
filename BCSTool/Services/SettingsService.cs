@@ -51,6 +51,53 @@ public sealed class SettingsService
 
 
     /// <summary>
+    /// Loads the UI theme before the main window is created. Invalid or
+    /// missing values preserve the existing Light appearance.
+    /// </summary>
+    public ApplicationTheme LoadApplicationTheme()
+    {
+        using var key =
+            Registry.CurrentUser.OpenSubKey(
+                RegistryPath,
+                writable: false);
+
+        var value =
+            key?.GetValue(nameof(ApplicationTheme))?.ToString();
+
+        return
+            Enum.TryParse<ApplicationTheme>(
+                value,
+                ignoreCase: true,
+                out var parsed) &&
+            Enum.IsDefined(parsed)
+                ? parsed
+                : ApplicationTheme.Light;
+    }
+
+
+    public Task SaveApplicationThemeAsync(ApplicationTheme theme)
+    {
+        using var key =
+            Registry.CurrentUser.CreateSubKey(
+                RegistryPath,
+                writable: true);
+
+        if (key is null)
+        {
+            throw new InvalidOperationException(
+                "Could not create or open the BCS Tool Registry settings key.");
+        }
+
+        WriteString(
+            key,
+            nameof(ApplicationTheme),
+            theme.ToString());
+
+        return Task.CompletedTask;
+    }
+
+
+    /// <summary>
     /// Loads saved settings from the Registry.
     ///
     /// If the Registry key does not exist yet, this is considered a normal

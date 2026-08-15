@@ -1,0 +1,46 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FFFDFDFD"/>
+    <SolidColorBrush x:Key="AppForegroundBrush" Color="#FF202020"/>
+    <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="ControlBackgroundBrush" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="ControlAltBackgroundBrush" Color="#FFF5F5F5"/>
+    <SolidColorBrush x:Key="ControlForegroundBrush" Color="#FF202020"/>
+    <SolidColorBrush x:Key="ControlBorderBrush" Color="#FFADADAD"/>
+    <SolidColorBrush x:Key="MutedForegroundBrush" Color="#FF6B6B6B"/>
+    <SolidColorBrush x:Key="DisabledForegroundBrush" Color="#FF8A8A8A"/>
+    <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#FF0078D7"/>
+    <SolidColorBrush x:Key="SelectionForegroundBrush" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="WarningPanelBackgroundBrush" Color="#FFFFF7E6"/>
+    <SolidColorBrush x:Key="WarningPanelBorderBrush" Color="#FFE0B45A"/>
+    <SolidColorBrush x:Key="WarningForegroundBrush" Color="#FF9A6700"/>
+    <SolidColorBrush x:Key="ErrorForegroundBrush" Color="#FFB3261E"/>
+    <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FF0067C0"/>
+    <SolidColorBrush x:Key="SplitterBrush" Color="#FFC8C8C8"/>
+
+    <SolidColorBrush x:Key="ConsoleBackgroundBrush" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="ConsoleForegroundBrush" Color="#FF000000"/>
+    <SolidColorBrush x:Key="ConsoleErrorBrush" Color="#FFC62828"/>
+    <SolidColorBrush x:Key="ConsoleWarningBrush" Color="#FF9A6700"/>
+    <SolidColorBrush x:Key="ConsoleSuccessBrush" Color="#FF2E7D32"/>
+    <SolidColorBrush x:Key="ConsoleActionBrush" Color="#FF005A9C"/>
+    <SolidColorBrush x:Key="ConsoleConnectingBrush" Color="#FF00788A"/>
+    <SolidColorBrush x:Key="ConsoleDisconnectedBrush" Color="#FFA15C00"/>
+    <SolidColorBrush x:Key="ConsoleMutedBrush" Color="#FF6B6B6B"/>
+
+    <SolidColorBrush x:Key="SuggestionBackgroundBrush" Color="#FF1E1E1E"/>
+    <SolidColorBrush x:Key="SuggestionForegroundBrush" Color="#FFE6E6E6"/>
+    <SolidColorBrush x:Key="SuggestionBorderBrush" Color="#FF666666"/>
+    <SolidColorBrush x:Key="SuggestionMutedBrush" Color="#FFAAAAAA"/>
+
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FF202020"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#FFF0F0F0"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#FF202020"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlDarkBrushKey}" Color="#FFADADAD"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.GrayTextBrushKey}" Color="#FF6B6B6B"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#FF0078D7"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#FF202020"/>
+</ResourceDictionary>

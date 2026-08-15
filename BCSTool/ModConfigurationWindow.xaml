@@ -8,6 +8,8 @@
         Height="850"
         MinWidth="820"
         MinHeight="650"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Closing="Window_Closing">
@@ -15,7 +17,8 @@
     <Window.Resources>
         <infra:BooleanEnabledDisabledConverter x:Key="BooleanEnabledDisabledConverter"/>
 
-        <Style TargetType="Button">
+        <Style TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="MinHeight" Value="34"/>
             <Setter Property="Padding" Value="10,5"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -35,12 +38,14 @@
 
         <!-- Keep both the selected value and every item in all dropdowns
              centered consistently throughout this window. -->
-        <Style TargetType="ComboBox">
+        <Style TargetType="ComboBox"
+               BasedOn="{StaticResource {x:Type ComboBox}}">
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
-        <Style TargetType="ComboBoxItem">
+        <Style TargetType="ComboBoxItem"
+               BasedOn="{StaticResource {x:Type ComboBoxItem}}">
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
@@ -125,7 +130,7 @@
                                   Margin="0,0,0,4"/>
 
                         <TextBlock Text="Unchecked = keep save/host setting."
-                                   Foreground="Gray"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    TextWrapping="Wrap"
                                    Margin="0,0,0,10"/>
 
@@ -371,7 +376,7 @@
                                       Margin="6,0,0,0"/>
                             <TextBlock Grid.Column="3"
                                        Text="Not synced in Coop currently; keep this Disabled for now."
-                                       Foreground="DarkGoldenrod"
+                                       Foreground="{DynamicResource WarningForegroundBrush}"
                                        TextWrapping="Wrap"
                                        VerticalAlignment="Center"
                                        Margin="10,0,0,0"/>
@@ -531,7 +536,7 @@
                                  Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="0" Grid.Column="2"
                                    Text="0 prevents AI parties joining player battles"
-                                   Foreground="Gray"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    VerticalAlignment="Center"
                                    Margin="10,0,0,8"/>
 
@@ -544,7 +549,7 @@
                                  Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="1" Grid.Column="2"
                                    Text="Vanilla limit: 32"
-                                   Foreground="Gray"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    VerticalAlignment="Center"
                                    Margin="10,0,0,8"/>
 
@@ -566,7 +571,7 @@
                                  Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="3" Grid.Column="2"
                                    Text="Vanilla tier requirement: 4"
-                                   Foreground="Gray"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    VerticalAlignment="Center"
                                    Margin="10,0,0,8"/>
 
@@ -596,7 +601,7 @@
                                  Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="6" Grid.Column="2"
                                    Text="High values may hurt performance"
-                                   Foreground="DarkGoldenrod"
+                                   Foreground="{DynamicResource WarningForegroundBrush}"
                                    VerticalAlignment="Center"
                                    Margin="10,0,0,8"/>
 
@@ -610,7 +615,7 @@
                                   Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="7" Grid.Column="2"
                                    Text="Vanilla = refusal expires after one in-game year"
-                                   Foreground="Gray"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap"
                                    Margin="10,0,0,8"/>
@@ -625,7 +630,7 @@
                                   Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="8" Grid.Column="2"
                                    Text="Controls whether players can execute AI clan members"
-                                   Foreground="Gray"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap"
                                    Margin="10,0,0,8"/>
@@ -639,7 +644,7 @@
                                   IsEnabled="{Binding EnableHeroExecutions}"/>
                         <TextBlock Grid.Row="9" Grid.Column="2"
                                    Text="Includes player companions and family; requires hero executions"
-                                   Foreground="Gray"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap"
                                    Margin="10,0,0,0"/>

@@ -6,12 +6,15 @@
         Height="335"
         MinWidth="430"
         MinHeight="335"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
 
     <Window.Resources>
-        <Style TargetType="Button">
+        <Style TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="MinHeight" Value="34"/>
             <Setter Property="Padding" Value="12,5"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -39,7 +42,7 @@
                    Grid.Row="1"
                    Margin="0,4,0,0"
                    HorizontalAlignment="Center"
-                   Foreground="Gray"/>
+                   Foreground="{DynamicResource MutedForegroundBrush}"/>
 
         <TextBlock Grid.Row="2"
                    Margin="0,14,0,0"
@@ -64,7 +67,7 @@
         <TextBlock x:Name="ErrorText"
                    Grid.Row="4"
                    Margin="0,12,0,0"
-                   Foreground="#B3261E"
+                   Foreground="{DynamicResource ErrorForegroundBrush}"
                    TextWrapping="Wrap"
                    TextAlignment="Center"
                    HorizontalAlignment="Center"

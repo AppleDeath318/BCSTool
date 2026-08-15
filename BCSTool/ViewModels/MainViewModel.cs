@@ -386,7 +386,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         OnPropertyChanged(nameof(PlayerAccessMode));
 
         AddToolMessage(
-            $"Player access control mode: {mode}.");
+            $"Player access control mode: {mode}.",
+            BcsToolMessageType.Action);
 
         RefreshPlayerRoster();
         await EvaluatePlayerAccessAsync();
@@ -396,15 +397,221 @@ public sealed class MainViewModel : BindableBase, IDisposable
         IEnumerable<PlayerAccessEntry> banlist,
         IEnumerable<PlayerAccessEntry> whitelist)
     {
-        await _playerAccessService.SaveBanlistAsync(banlist);
-        await _playerAccessService.SaveWhitelistAsync(whitelist);
+        var appliedBanlist =
+            PlayerAccessService.NormalizeAccessEntries(banlist);
+
+        var appliedWhitelist =
+            PlayerAccessService.NormalizeAccessEntries(whitelist);
+
+        var previousBanlist =
+            PlayerAccessService.NormalizeAccessEntries(
+                await _playerAccessService.LoadBanlistAsync());
+
+        var previousWhitelist =
+            PlayerAccessService.NormalizeAccessEntries(
+                await _playerAccessService.LoadWhitelistAsync());
+
+        var knownIdentities =
+            await _playerAccessService.LoadIdentityCacheAsync();
+
+        await _playerAccessService.SaveBanlistAsync(appliedBanlist);
+        await _playerAccessService.SaveWhitelistAsync(appliedWhitelist);
         await ReloadPlayerAccessListsAsync();
 
-        AddToolMessage(
-            "Player access lists applied.");
+        var changeMessages =
+            BuildPlayerAccessChangeMessages(
+                previousBanlist,
+                appliedBanlist,
+                previousWhitelist,
+                appliedWhitelist,
+                knownIdentities);
+
+        if (changeMessages.Count == 0)
+        {
+            AddToolMessage(
+                "Player access lists applied: no changes detected.",
+                BcsToolMessageType.Information);
+        }
+        else
+        {
+            foreach (var message in changeMessages)
+            {
+                AddToolMessage(
+                    message,
+                    BcsToolMessageType.Action);
+            }
+        }
 
         RefreshPlayerRoster();
         await EvaluatePlayerAccessAsync();
+    }
+
+    private static IReadOnlyList<string> BuildPlayerAccessChangeMessages(
+        IReadOnlyList<PlayerAccessEntry> previousBanlist,
+        IReadOnlyList<PlayerAccessEntry> appliedBanlist,
+        IReadOnlyList<PlayerAccessEntry> previousWhitelist,
+        IReadOnlyList<PlayerAccessEntry> appliedWhitelist,
+        IReadOnlyList<PlayerIdentityEntry> knownIdentities)
+    {
+        var messages =
+            new List<string>();
+
+        var identityBySteamId =
+            knownIdentities
+                .Where(
+                    identity =>
+                        PlayerAccessService.IsValidSteamId64(
+                            identity.SteamId))
+                .GroupBy(
+                    identity => identity.SteamId,
+                    StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Last(),
+                    StringComparer.Ordinal);
+
+        AppendPlayerAccessChanges(
+            messages,
+            previousBanlist,
+            appliedBanlist,
+            identityBySteamId,
+            addAction: "Ban",
+            removeAction: "Unban",
+            updateAction: "Update banlist entry");
+
+        AppendPlayerAccessChanges(
+            messages,
+            previousWhitelist,
+            appliedWhitelist,
+            identityBySteamId,
+            addAction: "Whitelist",
+            removeAction: "Unwhitelist",
+            updateAction: "Update whitelist entry");
+
+        return messages;
+    }
+
+    private static void AppendPlayerAccessChanges(
+        ICollection<string> messages,
+        IReadOnlyList<PlayerAccessEntry> previousEntries,
+        IReadOnlyList<PlayerAccessEntry> appliedEntries,
+        IReadOnlyDictionary<string, PlayerIdentityEntry> identityBySteamId,
+        string addAction,
+        string removeAction,
+        string updateAction)
+    {
+        var previousBySteamId =
+            previousEntries.ToDictionary(
+                entry => entry.SteamId,
+                StringComparer.Ordinal);
+
+        var appliedBySteamId =
+            appliedEntries.ToDictionary(
+                entry => entry.SteamId,
+                StringComparer.Ordinal);
+
+        var affectedSteamIds =
+            previousBySteamId.Keys
+                .Concat(appliedBySteamId.Keys)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(steamId => steamId, StringComparer.Ordinal);
+
+        foreach (var steamId in affectedSteamIds)
+        {
+            previousBySteamId.TryGetValue(
+                steamId,
+                out var previousEntry);
+
+            appliedBySteamId.TryGetValue(
+                steamId,
+                out var appliedEntry);
+
+            string action;
+            PlayerAccessEntry logEntry;
+
+            if (previousEntry is null && appliedEntry is not null)
+            {
+                action = addAction;
+                logEntry = appliedEntry;
+            }
+            else if (previousEntry is not null && appliedEntry is null)
+            {
+                action = removeAction;
+                logEntry = previousEntry;
+            }
+            else if (
+                previousEntry is not null &&
+                appliedEntry is not null &&
+                !PlayerAccessEntriesEqual(previousEntry, appliedEntry))
+            {
+                action = updateAction;
+                logEntry = appliedEntry;
+            }
+            else
+            {
+                continue;
+            }
+
+            identityBySteamId.TryGetValue(
+                steamId,
+                out var identity);
+
+            var characterName =
+                FirstNonBlank(
+                    appliedEntry?.LastKnownCharacterName,
+                    previousEntry?.LastKnownCharacterName,
+                    identity?.LastKnownCharacterName);
+
+            messages.Add(
+                "Player access change: " +
+                $"Action: {action} | " +
+                $"Character: {FormatPlayerAccessLogValue(characterName, "(unknown)")} | " +
+                $"Steam ID: {steamId} | " +
+                $"Note: {FormatPlayerAccessLogValue(logEntry.Note, "(none)")}");
+        }
+    }
+
+    private static bool PlayerAccessEntriesEqual(
+        PlayerAccessEntry first,
+        PlayerAccessEntry second)
+    {
+        return
+            string.Equals(
+                first.LastKnownCharacterName,
+                second.LastKnownCharacterName,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                first.HeroId,
+                second.HeroId,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                first.Note,
+                second.Note,
+                StringComparison.Ordinal);
+    }
+
+    private static string FirstNonBlank(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+        }
+
+        return "";
+    }
+
+    private static string FormatPlayerAccessLogValue(
+        string? value,
+        string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return fallback;
+
+        return Regex.Replace(
+            value.Trim(),
+            @"\s+",
+            " ");
     }
 
     public bool CanKickPlayer(PlayerInformationLine line) =>
@@ -442,7 +649,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         }
 
         AddToolMessage(
-            $"Manual player action: kick command sent for {safeName}.");
+            $"Manual player action: kick command sent for {safeName}.",
+            BcsToolMessageType.Action);
     }
 
     public async Task BanPlayerAsync(PlayerInformationLine line)
@@ -478,20 +686,16 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     Note = "Added from Player Information"
                 });
 
-            await _playerAccessService.SaveBanlistAsync(banlist);
-            await ReloadPlayerAccessListsAsync();
-
-            AddToolMessage(
-                $"Player banlist: successfully added {identity.CharacterName} (SteamID64 {identity.SteamId}).");
+            await ApplyPlayerAccessListsAsync(
+                banlist,
+                await _playerAccessService.LoadWhitelistAsync());
         }
         else
         {
             AddToolMessage(
-                $"Player banlist: {identity.CharacterName} (SteamID64 {identity.SteamId}) is already listed.");
+                $"Player banlist: {identity.CharacterName} (SteamID64 {identity.SteamId}) is already listed.",
+                BcsToolMessageType.Information);
         }
-
-        RefreshPlayerRoster();
-        await EvaluatePlayerAccessAsync();
     }
 
 
@@ -636,25 +840,36 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         Settings = await _settingsService.LoadAsync();
 
-        AddToolMessage($"{ApplicationVersion} initialized.");
-        AddToolMessage($"Settings storage: {_settingsService.StorageLocation}");
+        AddToolMessage(
+            $"{ApplicationVersion} initialized.",
+            BcsToolMessageType.Information);
+
+        AddToolMessage(
+            $"Settings storage: {_settingsService.StorageLocation}",
+            BcsToolMessageType.Information);
 
         await DetectServerExecutableIfNeededAsync();
 
-        AddToolMessage($"Server executable: {ServerExecutableDisplay}");
+        AddToolMessage(
+            $"Server executable: {ServerExecutableDisplay}",
+            BcsToolMessageType.Information);
         // LEGACY BCS SAVE BACKUPS (disabled): Bannerlord Coop now reports and
         // owns its native per-world backup rotation.
 #if false
         AddToolMessage(
             Settings.SaveBackupsEnabled
                 ? $"Save backup rotation enabled; retaining {Settings.SaveBackupCount} generation(s)."
-                : "Save backup rotation disabled.");
+                : "Save backup rotation disabled.",
+            Settings.SaveBackupsEnabled
+                ? BcsToolMessageType.Success
+                : BcsToolMessageType.Warning);
 #endif
 
         await ReloadPlayerAccessListsAsync();
         AddToolMessage(
             $"Player access control: {Settings.PlayerAccessMode}. " +
-            $"Banlist {_bannedSteamIds.Count}; whitelist {_whitelistedSteamIds.Count}.");
+            $"Banlist {_bannedSteamIds.Count}; whitelist {_whitelistedSteamIds.Count}.",
+            BcsToolMessageType.Information);
 
         _schedulerTask = RunSchedulerLoopAsync(_lifetimeCts.Token);
 
@@ -764,7 +979,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
         }
 
         if (logCommandSent)
-            AddToolMessage("Save command sent.");
+        {
+            AddToolMessage(
+                "Save command sent.",
+                BcsToolMessageType.Action);
+        }
 
         await Task.Delay(
             TimeSpan.FromSeconds(Settings.SaveWaitSeconds),
@@ -803,7 +1022,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _nextRestartAt = null;
             _lastWarningKey = null;
 
-            AddToolMessage($"Restart sequence started: {reason}");
+            AddToolMessage(
+                $"Restart sequence started: {reason}",
+                BcsToolMessageType.Action);
 
             await BroadcastAsync(Settings.BroadcastRestarting);
             await Task.Delay(
@@ -822,7 +1043,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 ServerState = ServerState.Error;
                 StatusMessage =
                     "Server did not shut down cleanly. Restart aborted.";
-                AddToolMessage(StatusMessage);
+                AddToolMessage(
+                    StatusMessage,
+                    BcsToolMessageType.Error);
                 return;
             }
 
@@ -851,7 +1074,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 {
                     AddToolMessage(
                         $"Port {Settings.ServerPort} stayed occupied after graceful stop. " +
-                        "Cleaning the managed process tree.");
+                        "Cleaning the managed process tree.",
+                        BcsToolMessageType.Warning);
 
                     // This is the abnormal fallback. Normal restarts should
                     // never need a force cleanup because "stop" is graceful.
@@ -909,7 +1133,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
         {
             ServerState = ServerState.Error;
             StatusMessage = string.Join(" ", validation);
-            AddToolMessage("Settings validation failed: " + StatusMessage);
+            AddToolMessage(
+                "Settings validation failed: " + StatusMessage,
+                BcsToolMessageType.Error);
             return;
         }
 
@@ -921,7 +1147,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
             ServerState = ServerState.Error;
             StatusMessage =
                 $"Server executable not found: {executablePath}";
-            AddToolMessage(StatusMessage);
+            AddToolMessage(
+                StatusMessage,
+                BcsToolMessageType.Error);
             return;
         }
 
@@ -933,7 +1161,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 "BCS Tool will not start a duplicate. " +
                 "If you previously stopped a Visual Studio debug session, " +
                 "this may be a leftover process from that run.";
-            AddToolMessage(StatusMessage);
+            AddToolMessage(
+                StatusMessage,
+                BcsToolMessageType.Warning);
             return;
         }
 
@@ -945,7 +1175,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
             StatusMessage =
                 $"Port {Settings.ServerPort} is already in use. " +
                 "BCS Tool will not start another server while that configured port is occupied.";
-            AddToolMessage(StatusMessage);
+            AddToolMessage(
+                StatusMessage,
+                BcsToolMessageType.Warning);
             return;
         }
 
@@ -975,7 +1207,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _serverLogMonitor.StopMonitoring();
             ServerState = ServerState.Error;
             StatusMessage = "Server process failed to start.";
-            AddToolMessage(StatusMessage);
+            AddToolMessage(
+                StatusMessage,
+                BcsToolMessageType.Error);
             return;
         }
 
@@ -990,12 +1224,14 @@ public sealed class MainViewModel : BindableBase, IDisposable
             "Waiting for dedicated server state: SERVING";
 
         AddToolMessage(
-            $"Server process started. PID {_processManager.ProcessId}.");
+            $"Server process started. PID {_processManager.ProcessId}.",
+            BcsToolMessageType.Success);
 
         if (logAutomationDisabledMessage)
         {
             AddToolMessage(
-                "Scheduled automation remains disabled until readiness is detected.");
+                "Scheduled automation remains disabled until readiness is detected.",
+                BcsToolMessageType.Warning);
         }
     }
 
@@ -1062,7 +1298,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
         NextRestartText = "Server stopped";
         StatusMessage = "Server stopped.";
 
-        AddToolMessage("Server stopped gracefully.");
+        AddToolMessage(
+            "Server stopped gracefully.",
+            BcsToolMessageType.Success);
         return true;
     }
 
@@ -1093,7 +1331,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 command);
 
             AddToolMessage(
-                $"> {command}");
+                $"> {command}",
+                BcsToolMessageType.Action);
 
             CommandText = "";
 
@@ -1113,7 +1352,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             command);
 
         AddToolMessage(
-            $"> {command}");
+            $"> {command}",
+            BcsToolMessageType.Action);
 
         CommandText = "";
     }
@@ -1241,7 +1481,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 "Saved executable path loaded — changes are saved automatically.";
 
             AddToolMessage(
-                "Server executable path is valid; auto-detection was not needed.");
+                "Server executable path is valid; auto-detection was not needed.",
+                BcsToolMessageType.Success);
 
             return;
         }
@@ -1250,7 +1491,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             "Auto-detecting BannerlordCoopServer.exe...";
 
         AddToolMessage(
-            "Saved server executable path is missing or invalid. Auto-detecting...");
+            "Saved server executable path is missing or invalid. Auto-detecting...",
+            BcsToolMessageType.Warning);
 
         ServerExecutableDetectionResult result;
 
@@ -1270,7 +1512,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 "Auto-detection failed — use Browse...; selections save automatically.";
 
             AddToolMessage(
-                $"Server executable auto-detection failed: {ex.Message}");
+                $"Server executable auto-detection failed: {ex.Message}",
+                BcsToolMessageType.Error);
 
             return;
         }
@@ -1284,7 +1527,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 "Not detected automatically — use Browse...; selections save automatically.";
 
             AddToolMessage(
-                "BannerlordCoopServer.exe was not detected automatically. Use Browse...");
+                "BannerlordCoopServer.exe was not detected automatically. Use Browse...",
+                BcsToolMessageType.Warning);
 
             return;
         }
@@ -1304,12 +1548,14 @@ public sealed class MainViewModel : BindableBase, IDisposable
         if (result.CandidateCount > 1)
         {
             AddToolMessage(
-                $"Auto-detection found {result.CandidateCount} candidates; selected: {result.Path}");
+                $"Auto-detection found {result.CandidateCount} candidates; selected: {result.Path}",
+                BcsToolMessageType.Action);
         }
         else
         {
             AddToolMessage(
-                $"Auto-detected server executable: {result.Path}");
+                $"Auto-detected server executable: {result.Path}",
+                BcsToolMessageType.Success);
         }
 
         // Persist only the detected executable location. Restart settings are
@@ -1323,7 +1569,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 $"Auto-detected from {result.Source} and saved automatically.";
 
             AddToolMessage(
-                "Auto-detected server executable path saved automatically.");
+                "Auto-detected server executable path saved automatically.",
+                BcsToolMessageType.Success);
         }
         catch (Exception ex)
         {
@@ -1331,7 +1578,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 $"Auto-detected from {result.Source}, but the path could not be saved.";
 
             AddToolMessage(
-                $"Could not persist auto-detected server executable path: {ex.Message}");
+                $"Could not persist auto-detected server executable path: {ex.Message}",
+                BcsToolMessageType.Error);
         }
     }
 
@@ -1391,7 +1639,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             "Restart settings saved.";
 
         AddToolMessage(
-            "Restart settings saved.");
+            "Restart settings saved.",
+            BcsToolMessageType.Success);
     }
 
     /// <summary>
@@ -1442,7 +1691,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             "Restart settings reset to defaults.";
 
         AddToolMessage(
-            "Restart settings reset to defaults.");
+            "Restart settings reset to defaults.",
+            BcsToolMessageType.Action);
     }
 
 
@@ -1483,7 +1733,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 "Server executable selected and saved.";
 
             AddToolMessage(
-                $"Server executable selected and saved automatically: {ServerExecutableDisplay}");
+                $"Server executable selected and saved automatically: {ServerExecutableDisplay}",
+                BcsToolMessageType.Success);
         }
         catch (Exception ex)
         {
@@ -1494,7 +1745,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 $"Could not save server executable path: {ex.Message}";
 
             AddToolMessage(
-                StatusMessage);
+                StatusMessage,
+                BcsToolMessageType.Error);
         }
     }
 
@@ -1722,7 +1974,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
         AddToolMessage(
             enabled
                 ? $"Save backup rotation enabled; retaining {backupCount} generation(s)."
-                : "Save backup rotation disabled; existing backups were preserved.");
+                : "Save backup rotation disabled; existing backups were preserved.",
+            enabled
+                ? BcsToolMessageType.Success
+                : BcsToolMessageType.Warning);
     }
 #endif
 
@@ -1855,7 +2110,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (reportErrors)
             {
                 AddToolMessage(
-                    $"Could not read player identities from the active save yet: {ex.Message}");
+                    $"Could not read player identities from the active save yet: {ex.Message}",
+                    BcsToolMessageType.Warning);
             }
         }
         catch (IOException ex)
@@ -1863,7 +2119,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (reportErrors)
             {
                 AddToolMessage(
-                    $"Could not read player identities from the active save yet: {ex.Message}");
+                    $"Could not read player identities from the active save yet: {ex.Message}",
+                    BcsToolMessageType.Warning);
             }
         }
         catch (Exception ex)
@@ -1871,7 +2128,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (reportErrors)
             {
                 AddToolMessage(
-                    $"Player identity refresh failed: {ex.Message}");
+                    $"Player identity refresh failed: {ex.Message}",
+                    BcsToolMessageType.Error);
             }
         }
 
@@ -2218,7 +2476,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                             : "Whitelist (SteamID64 is not whitelisted)";
 
                     AddToolMessage(
-                        $"Access denied: kicked {safeName} (SteamID64 {identity.SteamId}). Rule: {accessRule}.");
+                        $"Access denied: kicked {safeName} (SteamID64 {identity.SteamId}). Rule: {accessRule}.",
+                        BcsToolMessageType.Warning);
                 }
             }
 
@@ -2233,7 +2492,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         catch (Exception ex)
         {
             AddToolMessage(
-                $"Player access enforcement failed: {ex.Message}");
+                $"Player access enforcement failed: {ex.Message}",
+                BcsToolMessageType.Error);
         }
         finally
         {
@@ -2307,7 +2567,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             AddToolMessage(
                 $"Loaded native save backup {result.BackupName}: " +
                 $"{Path.GetFileName(result.ActiveSavPath)} + " +
-                $"{Path.GetFileName(result.ActiveJsonPath)} replaced.");
+                $"{Path.GetFileName(result.ActiveJsonPath)} replaced.",
+                BcsToolMessageType.Success);
 
             return
                 result;
@@ -2648,7 +2909,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         StatusMessage = "Server is online and ready.";
 
         AddToolMessage(
-            "SERVER READY: dedicated server state is SERVING.");
+            "SERVER READY: dedicated server state is SERVING.",
+            BcsToolMessageType.Success);
 
         RecalculateNextRestart();
 
@@ -2697,7 +2959,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             normalized);
 
         AddToolMessage(
-            $"Command autocomplete loaded: {_availableCommands.Count} commands.");
+            $"Command autocomplete loaded: {_availableCommands.Count} commands.",
+            BcsToolMessageType.Success);
     }
 
 
@@ -2814,7 +3077,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (backup is not null)
             {
                 AddToolMessage(
-                    $"Save backup pair created: {Path.GetFileName(backup.SavPath)} + {Path.GetFileName(backup.JsonPath)}");
+                    $"Save backup pair created: {Path.GetFileName(backup.SavPath)} + {Path.GetFileName(backup.JsonPath)}",
+                    BcsToolMessageType.Success);
             }
         }
         catch (OperationCanceledException)
@@ -2825,7 +3089,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             // Backup failure must never affect the running Bannerlord server.
             // Surface the error to the BCS Tool console and continue normally.
             AddToolMessage(
-                $"Save backup failed: {ex.Message}");
+                $"Save backup failed: {ex.Message}",
+                BcsToolMessageType.Error);
         }
     }
 #endif
@@ -2925,7 +3190,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             StatusMessage = "Server failure detected.";
 
             AddToolMessage(
-                $"Unexpected server failure detected: {reason}");
+                $"Unexpected server failure detected: {reason}",
+                BcsToolMessageType.Error);
 
             await Task.Delay(
                 TimeSpan.FromSeconds(Settings.CrashRecoverySettleSeconds),
@@ -2935,7 +3201,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
             // sitting at a dead launcher prompt. Terminate the entire managed
             // job even when the launcher process itself has not exited.
             AddToolMessage(
-                "Cleaning the crashed server launcher and managed child processes.");
+                "Cleaning the crashed server launcher and managed child processes.",
+                BcsToolMessageType.Action);
 
             _processManager.ForceCleanupManagedTree();
 
@@ -2974,7 +3241,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     "Crashed server launcher could not be terminated. Automatic recovery paused.";
 
                 AddToolMessage(
-                    StatusMessage);
+                    StatusMessage,
+                    BcsToolMessageType.Error);
 
                 return;
             }
@@ -2995,7 +3263,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     "Crash recovery is disabled. Server remains stopped.";
 
                 AddToolMessage(
-                    "Crashed server process tree was cleaned. Automatic restart is disabled.");
+                    "Crashed server process tree was cleaned. Automatic restart is disabled.",
+                    BcsToolMessageType.Warning);
 
                 return;
             }
@@ -3056,18 +3325,21 @@ public sealed class MainViewModel : BindableBase, IDisposable
             {
                 AddToolMessage(
                     "No complete retained save backup is available for a crash snapshot. " +
-                    "The current active save was left unchanged.");
+                    "The current active save was left unchanged.",
+                    BcsToolMessageType.Warning);
                 return;
             }
 
             AddToolMessage(
                 $"Crash backup created from {crashBackup.SourceBackupName}: " +
                 $"{Path.GetFileName(crashBackup.SavPath)} + " +
-                $"{Path.GetFileName(crashBackup.JsonPath)}.");
+                $"{Path.GetFileName(crashBackup.JsonPath)}.",
+                BcsToolMessageType.Success);
 
             AddToolMessage(
                 "The active save was not rolled back. If it later proves corrupted, " +
-                $"stop the server and load {crashBackup.CrashBackupName} manually.");
+                $"stop the server and load {crashBackup.CrashBackupName} manually.",
+                BcsToolMessageType.Warning);
         }
         catch (OperationCanceledException)
         {
@@ -3077,9 +3349,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
         {
             // Snapshot failure must not replace or block the current save.
             AddToolMessage(
-                $"Warning: crash backup could not be created: {ex.Message}");
+                $"Warning: crash backup could not be created: {ex.Message}",
+                BcsToolMessageType.Error);
             AddToolMessage(
-                "The current active save was left unchanged.");
+                "The current active save was left unchanged.",
+                BcsToolMessageType.Information);
         }
     }
 #endif
@@ -3127,7 +3401,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     await _dispatcher.InvokeAsync(() =>
                     {
                         AddToolMessage(
-                            $"Scheduled restart time reached: {restartTime:yyyy-MM-dd HH:mm:ss}");
+                            $"Scheduled restart time reached: {restartTime:yyyy-MM-dd HH:mm:ss}",
+                            BcsToolMessageType.Action);
 
                         _ = RestartServerAsync("Scheduled restart");
                     });
@@ -3162,7 +3437,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
                 await _dispatcher.InvokeAsync(() =>
                 {
-                    AddToolMessage(message);
+                    AddToolMessage(
+                        message,
+                        BcsToolMessageType.Warning);
                     _ = BroadcastAsync(message);
                 });
             }
@@ -3225,14 +3502,19 @@ public sealed class MainViewModel : BindableBase, IDisposable
             _nextRestartAt.Value.ToString("yyyy-MM-dd HH:mm:ss");
 
         AddToolMessage(
-            $"Next scheduled restart: {_nextRestartAt:yyyy-MM-dd HH:mm:ss}");
+            $"Next scheduled restart: {_nextRestartAt:yyyy-MM-dd HH:mm:ss}",
+            BcsToolMessageType.Action);
     }
 
-    private void AddToolMessage(string message)
+    private void AddToolMessage(
+        string message,
+        BcsToolMessageType messageType)
     {
         _logService.Write(message);
         AddConsoleLine(
-            BcsToolConsoleLine.FromMessage(message));
+            BcsToolConsoleLine.FromMessage(
+                message,
+                messageType));
     }
 
     /// <summary>

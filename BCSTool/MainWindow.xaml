@@ -25,6 +25,8 @@
         Height="820"
         MinWidth="1000"
         MinHeight="700"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}"
         WindowStartupLocation="CenterScreen"
         Loaded="Window_Loaded"
         Deactivated="Window_Deactivated"
@@ -36,7 +38,8 @@
             hard-coded widths. MinHeight + padding keeps them comfortable at
             both the minimum window size and larger resolutions.
         -->
-        <Style TargetType="Button">
+        <Style TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="MinHeight" Value="34"/>
             <Setter Property="Padding" Value="10,5"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -70,7 +73,7 @@
             server lifecycle state, uptime, and next restart.
         -->
         <Border Grid.Row="0"
-                BorderBrush="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}"
+                BorderBrush="{DynamicResource ControlBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 Padding="12"
@@ -104,7 +107,8 @@
                             <Ellipse.Style>
                                 <Style TargetType="Ellipse">
                                     <!-- Default/offline color -->
-                                    <Setter Property="Fill" Value="Gray"/>
+                                    <Setter Property="Fill"
+                                            Value="{DynamicResource MutedForegroundBrush}"/>
 
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding ServerState}"
@@ -232,7 +236,7 @@
                     <TextBlock Grid.Row="2"
                                Text="{Binding ServerExecutableDetectionStatus}"
                                FontSize="11"
-                               Foreground="Gray"
+                               Foreground="{DynamicResource MutedForegroundBrush}"
                                TextWrapping="Wrap"
                                Margin="0,5,0,0"/>
 
@@ -443,7 +447,7 @@
                     <TextBlock Grid.Row="4"
                                Margin="0,7,0,0"
                                FontSize="11"
-                               Foreground="Gray"
+                               Foreground="{DynamicResource MutedForegroundBrush}"
                                TextWrapping="Wrap"
                                Text="Banlist: blocks listed SteamID64s.&#10;Whitelist: allows only listed SteamID64s."/>
                 </Grid>
@@ -495,8 +499,8 @@
                                  ItemsSource="{Binding ServerConsoleLines}"
                                  FontFamily="Consolas"
                                  FontSize="12"
-                                 Background="White"
-                                 Foreground="Black"
+                                 Background="{DynamicResource ConsoleBackgroundBrush}"
+                                 Foreground="{DynamicResource ConsoleForegroundBrush}"
                                  BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
@@ -530,8 +534,8 @@
                              Margin="8"
                              FontFamily="Consolas"
                              FontSize="12"
-                             Background="White"
-                             Foreground="Black"
+                             Background="{DynamicResource ConsoleBackgroundBrush}"
+                             Foreground="{DynamicResource ConsoleForegroundBrush}"
                              BorderThickness="0"
                              HorizontalContentAlignment="Stretch"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -577,8 +581,8 @@
                              ItemsSource="{Binding ConsoleLines}"
                              FontFamily="Consolas"
                              FontSize="12"
-                             Background="White"
-                             Foreground="Black"
+                             Background="{DynamicResource ConsoleBackgroundBrush}"
+                             Foreground="{DynamicResource ConsoleForegroundBrush}"
                              BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
@@ -628,8 +632,8 @@
                        StaysOpen="True">
                     <Border x:Name="CommandSuggestionsBorder"
                             MaxHeight="280"
-                            Background="#1E1E1E"
-                            BorderBrush="#666666"
+                            Background="{DynamicResource SuggestionBackgroundBrush}"
+                            BorderBrush="{DynamicResource SuggestionBorderBrush}"
                             BorderThickness="1"
                             CornerRadius="3"
                             Padding="4">
@@ -643,8 +647,8 @@
                                      Grid.Row="0"
                                      FontFamily="Consolas"
                                      FontSize="12"
-                                     Background="#1E1E1E"
-                                     Foreground="#E6E6E6"
+                                     Background="{DynamicResource SuggestionBackgroundBrush}"
+                                     Foreground="{DynamicResource SuggestionForegroundBrush}"
                                      BorderThickness="0"
                                      MaxHeight="240"
                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
@@ -656,7 +660,7 @@
                             <TextBlock x:Name="CommandSuggestionsStatus"
                                        Grid.Row="1"
                                        Margin="5,4,5,2"
-                                       Foreground="#AAAAAA"
+                                       Foreground="{DynamicResource SuggestionMutedBrush}"
                                        FontSize="11"/>
                         </Grid>
                     </Border>
@@ -673,6 +677,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
             <TextBlock Grid.Column="0"
@@ -680,8 +685,23 @@
                        TextWrapping="Wrap"
                        VerticalAlignment="Center"/>
 
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <TextBlock Text="Theme:"
+                           VerticalAlignment="Center"
+                           Margin="0,0,6,0"/>
+
+                <ComboBox x:Name="ThemeComboBox"
+                          Width="82"
+                          MinHeight="26"
+                          Padding="5,1"
+                          VerticalContentAlignment="Center"
+                          SelectionChanged="ThemeComboBox_SelectionChanged"/>
+            </StackPanel>
+
             <Button x:Name="VersionLinkButton"
-                    Grid.Column="1"
+                    Grid.Column="2"
                     Margin="12,0,0,0"
                     MinHeight="0"
                     Padding="3,1"
@@ -690,7 +710,7 @@
                     Cursor="Hand"
                     Click="VersionLink_Click"
                     ToolTip="About BCS Tool"
-                    Foreground="Gray"
+                    Foreground="{DynamicResource MutedForegroundBrush}"
                     VerticalAlignment="Center"/>
         </Grid>
     </Grid>
