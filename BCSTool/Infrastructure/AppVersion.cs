@@ -18,7 +18,7 @@ public static class AppVersion
 
             // .NET/Git builds may append metadata such as:
             //
-            // 0.3.3.2+abc123...
+            // 0.3.4+abc123...
             //
             // We only want the public application version.
             var plusIndex =

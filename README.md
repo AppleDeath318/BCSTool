@@ -4,7 +4,7 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
-**Current release:** v0.3.3.2
+**Current release:** v0.3.4
 
 **Author:** [Apar](https://github.com/AppleDeath318)
 
@@ -274,7 +274,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.3.3.2
+0.3.4
 ```
 
 The application version is defined in:
@@ -286,7 +286,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.3.3.2</Version>
+<Version>0.3.4</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -294,7 +294,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.3.3.2
+v0.3.4
 ```
 
 ## Development Status

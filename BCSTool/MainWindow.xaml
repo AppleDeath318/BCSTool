@@ -185,20 +185,20 @@
             SETTINGS + CONTROLS
             Four parallel sections:
               1. Server Settings
-              2. Restart Settings
-              3. Server Controls
-              4. Access Control (Beta)
+              2. Server Controls
+              3. Access Control (Beta)
+              4. Advance Settings
         -->
         <Grid Grid.Row="1"
               Margin="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="1.35*" MinWidth="245"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="1.2*" MinWidth="220"/>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="1.1*" MinWidth="220"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="0.75*" MinWidth="185"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="1.2*" MinWidth="220"/>
             </Grid.ColumnDefinitions>
 
             <!-- Server executable + configuration editors -->
@@ -269,8 +269,8 @@
                           ResizeBehavior="PreviousAndNext"/>
 
             <!-- Restart scheduling -->
-            <GroupBox Grid.Column="2"
-                      Header="Restart Settings">
+            <GroupBox Grid.Column="6"
+                      Header="Advance Settings">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -368,7 +368,7 @@
                           ResizeBehavior="PreviousAndNext"/>
 
             <!-- Manual server controls -->
-            <GroupBox Grid.Column="4"
+            <GroupBox Grid.Column="2"
                       Header="Server Controls">
                 <UniformGrid Rows="2"
                              Columns="3"
@@ -408,7 +408,7 @@
                           ResizeBehavior="PreviousAndNext"/>
 
             <!-- Player access policy and SteamID64 lists -->
-            <GroupBox Grid.Column="6"
+            <GroupBox Grid.Column="4"
                       Header="Access Control (Beta)">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
