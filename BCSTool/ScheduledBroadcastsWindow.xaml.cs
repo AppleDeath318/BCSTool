@@ -14,6 +14,7 @@ namespace BCSTool;
 public partial class ScheduledBroadcastsWindow : Window
 {
     private readonly MainViewModel _viewModel;
+    private readonly int _maximumIntervalMinutes;
     private bool _allowClose;
     private string _savedSnapshot;
 
@@ -24,6 +25,8 @@ public partial class ScheduledBroadcastsWindow : Window
         InitializeComponent();
 
         _viewModel = viewModel;
+        _maximumIntervalMinutes =
+            viewModel.GetMaximumScheduledBroadcastIntervalMinutes();
         DataContext = this;
 
         foreach (var entry in _viewModel.GetScheduledBroadcasts())
@@ -49,7 +52,8 @@ public partial class ScheduledBroadcastsWindow : Window
         }
 
         var editor =
-            new ScheduledBroadcastEditorWindow
+            new ScheduledBroadcastEditorWindow(
+                _maximumIntervalMinutes)
             {
                 Owner = this
             };
@@ -83,7 +87,9 @@ public partial class ScheduledBroadcastsWindow : Window
             return;
 
         var editor =
-            new ScheduledBroadcastEditorWindow(Clone(selected))
+            new ScheduledBroadcastEditorWindow(
+                _maximumIntervalMinutes,
+                Clone(selected))
             {
                 Owner = this
             };
@@ -105,13 +111,25 @@ public partial class ScheduledBroadcastsWindow : Window
         object sender,
         RoutedEventArgs e)
     {
-        if (BroadcastGrid.SelectedItem is not ScheduledBroadcastEntry selected)
+        var selectedEntries =
+            BroadcastGrid.SelectedItems
+                .Cast<ScheduledBroadcastEntry>()
+                .ToArray();
+
+        if (selectedEntries.Length == 0)
             return;
+
+        var confirmation =
+            selectedEntries.Length == 1
+                ? $"Remove this scheduled broadcast?\n\n{selectedEntries[0].Message}"
+                : $"Remove the {selectedEntries.Length} selected scheduled broadcasts?";
 
         var result = MessageBox.Show(
             this,
-            $"Remove this scheduled broadcast?\n\n{selected.Message}",
-            "Remove Scheduled Broadcast",
+            confirmation,
+            selectedEntries.Length == 1
+                ? "Remove Scheduled Broadcast"
+                : "Remove Scheduled Broadcasts",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
             MessageBoxResult.No);
@@ -119,7 +137,9 @@ public partial class ScheduledBroadcastsWindow : Window
         if (result != MessageBoxResult.Yes)
             return;
 
-        Entries.Remove(selected);
+        foreach (var selected in selectedEntries)
+            Entries.Remove(selected);
+
         UpdateCountText();
     }
 

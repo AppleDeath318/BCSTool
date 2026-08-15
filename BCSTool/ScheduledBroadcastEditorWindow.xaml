@@ -31,7 +31,6 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="120"/>
-                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
             <TextBlock Grid.Column="0"
@@ -41,11 +40,6 @@
             <TextBox x:Name="IntervalTextBox"
                      Grid.Column="1"
                      VerticalContentAlignment="Center"/>
-            <TextBlock Grid.Column="2"
-                       Text="5–1440 minutes"
-                       Foreground="{DynamicResource MutedForegroundBrush}"
-                       VerticalAlignment="Center"
-                       Margin="10,0,0,0"/>
         </Grid>
 
         <Grid Grid.Row="2">

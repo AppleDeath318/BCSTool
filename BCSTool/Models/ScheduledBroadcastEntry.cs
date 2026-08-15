@@ -7,7 +7,7 @@ namespace BCSTool.Models;
 /// </summary>
 public sealed class ScheduledBroadcastEntry
 {
-    public const int MinimumIntervalMinutes = 5;
+    public const int MinimumIntervalMinutes = 1;
     public const int MaximumIntervalMinutes = 1440;
     public const int MaximumMessageLength = 500;
     public const int MaximumEntryCount = 50;

@@ -81,6 +81,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private bool _heroListRequestPending;
     private int _heroListActivityVersion;
     private int _identityRefreshVersion;
+    private readonly SemaphoreSlim _heroListCommandSendLock = new(1, 1);
+    private readonly object _heroListOutputLock = new();
+    private readonly LinkedList<bool> _pendingHeroListOutputVisibility = new();
+    private bool _showActiveHeroListResponse;
 
     private static readonly TimeSpan HeroListQuietPeriod =
         TimeSpan.FromMilliseconds(500);
@@ -212,9 +216,12 @@ public sealed class MainViewModel : BindableBase, IDisposable
     public string ApplicationVersion => AppVersion.DisplayName;
 
     public string RestartScheduleSummary =>
-        Settings.RestartEveryHours == 1
-            ? $"Every hour at :{Settings.RestartMinute:00}"
-            : $"Every {Settings.RestartEveryHours} hours at :{Settings.RestartMinute:00}";
+        Settings.RestartEveryHours switch
+        {
+            0 => "Disabled",
+            1 => $"Every hour at :{Settings.RestartMinute:00}",
+            _ => $"Every {Settings.RestartEveryHours} hours at :{Settings.RestartMinute:00}"
+        };
 
     public string ScheduledBroadcastsSummary
     {
@@ -1352,7 +1359,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
             AddToolMessage(
                 $"> {command}",
-                BcsToolMessageType.Action);
+                BcsToolMessageType.UserInput);
 
             CommandText = "";
 
@@ -1361,9 +1368,15 @@ public sealed class MainViewModel : BindableBase, IDisposable
             return;
         }
 
-        if (!await _processManager.SendCommandAsync(
-                command,
-                _lifetimeCts.Token))
+        var commandSent =
+            IsHeroListCommand(command)
+                ? await SendHeroListCommandAsync(
+                    showInServerConsole: true)
+                : await _processManager.SendCommandAsync(
+                    command,
+                    _lifetimeCts.Token);
+
+        if (!commandSent)
         {
             return;
         }
@@ -1373,7 +1386,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         AddToolMessage(
             $"> {command}",
-            BcsToolMessageType.Action);
+            BcsToolMessageType.UserInput);
 
         CommandText = "";
     }
@@ -1605,7 +1618,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
 
     /// <summary>
-    /// Applies the dedicated Restart Schedule window only after validation.
+    /// Applies the dedicated Restart Settings window only after validation.
     /// Editing the window therefore cannot alter live scheduling until Apply.
     /// </summary>
     public async Task ApplyRestartScheduleAsync(
@@ -1613,10 +1626,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
         int restartMinute,
         int warningMinutesBefore)
     {
-        if (restartEveryHours is < 1 or > 24)
+        if (restartEveryHours is < 0 or > 24)
             throw new ArgumentOutOfRangeException(
                 nameof(restartEveryHours),
-                "Restart interval must be between 1 and 24 hours.");
+                "Restart interval must be 0 (disabled) or between 1 and 24 hours.");
 
         if (restartMinute is < 0 or > 59)
             throw new ArgumentOutOfRangeException(
@@ -1627,6 +1640,23 @@ public sealed class MainViewModel : BindableBase, IDisposable
             throw new ArgumentOutOfRangeException(
                 nameof(warningMinutesBefore),
                 "Restart warning lead time must be between 0 and 10 minutes.");
+
+        var maximumBroadcastIntervalMinutes =
+            GetMaximumScheduledBroadcastIntervalMinutes(
+                restartEveryHours);
+        var broadcastsAboveNewLimit =
+            Settings.ScheduledBroadcasts.Count(
+                entry =>
+                    entry.IntervalMinutes > maximumBroadcastIntervalMinutes);
+
+        if (broadcastsAboveNewLimit > 0)
+        {
+            throw new ArgumentException(
+                $"{broadcastsAboveNewLimit} scheduled broadcast(s) exceed the new " +
+                $"{maximumBroadcastIntervalMinutes}-minute limit. Shorten those " +
+                $"intervals before applying this restart setting.",
+                nameof(restartEveryHours));
+        }
 
         var previousRestartEveryHours = Settings.RestartEveryHours;
         var previousRestartMinute = Settings.RestartMinute;
@@ -1651,11 +1681,13 @@ public sealed class MainViewModel : BindableBase, IDisposable
         RecalculateNextRestart();
         OnPropertyChanged(nameof(RestartScheduleSummary));
 
-        StatusMessage = "Restart schedule applied.";
+        StatusMessage = "Scheduled restart applied.";
 
         AddToolMessage(
-            $"Restart schedule applied: {RestartScheduleSummary}; " +
-            $"warning lead {Settings.WarningMinutesBefore} minute(s).",
+            Settings.RestartEveryHours == 0
+                ? "Scheduled Restart applied: Disabled."
+                : $"Scheduled Restart applied: {RestartScheduleSummary}; " +
+                  $"warning lead {Settings.WarningMinutesBefore} minute(s).",
             BcsToolMessageType.Success);
     }
 
@@ -1664,6 +1696,18 @@ public sealed class MainViewModel : BindableBase, IDisposable
         Settings.ScheduledBroadcasts
             .Select(CloneScheduledBroadcast)
             .ToArray();
+
+
+    public int GetMaximumScheduledBroadcastIntervalMinutes() =>
+        GetMaximumScheduledBroadcastIntervalMinutes(
+            Settings.RestartEveryHours);
+
+
+    private static int GetMaximumScheduledBroadcastIntervalMinutes(
+        int restartEveryHours) =>
+        restartEveryHours == 0
+            ? ScheduledBroadcastEntry.MaximumIntervalMinutes
+            : restartEveryHours * 60;
 
 
     public async Task ApplyScheduledBroadcastsAsync(
@@ -1682,17 +1726,19 @@ public sealed class MainViewModel : BindableBase, IDisposable
 
         var normalized = new List<ScheduledBroadcastEntry>();
         var ids = new HashSet<Guid>();
+        var maximumIntervalMinutes =
+            GetMaximumScheduledBroadcastIntervalMinutes();
 
         foreach (var entry in source)
         {
             if (
-                entry.IntervalMinutes is < ScheduledBroadcastEntry.MinimumIntervalMinutes or
-                    > ScheduledBroadcastEntry.MaximumIntervalMinutes)
+                entry.IntervalMinutes < ScheduledBroadcastEntry.MinimumIntervalMinutes ||
+                entry.IntervalMinutes > maximumIntervalMinutes)
             {
                 throw new ArgumentException(
                     $"Broadcast intervals must be between " +
                     $"{ScheduledBroadcastEntry.MinimumIntervalMinutes} and " +
-                    $"{ScheduledBroadcastEntry.MaximumIntervalMinutes} minutes.",
+                    $"{maximumIntervalMinutes} minutes.",
                     nameof(entries));
             }
 
@@ -1882,6 +1928,12 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _heroListRequestPending = false;
         _heroListActivityVersion++;
         _identityRefreshVersion++;
+
+        lock (_heroListOutputLock)
+        {
+            _pendingHeroListOutputVisibility.Clear();
+            _showActiveHeroListResponse = false;
+        }
 
         OnPropertyChanged(nameof(PlayersHeaderText));
     }
@@ -2357,11 +2409,89 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _lastHeroListRequestUtc = DateTime.UtcNow;
         _heroListRequestPending = true;
 
-        if (!await _processManager.SendCommandAsync(
-                "coop.debug.hero.list",
-                _lifetimeCts.Token))
+        if (!await SendHeroListCommandAsync(
+                showInServerConsole: false))
         {
             _heroListRequestPending = false;
+        }
+    }
+
+
+    private async Task<bool> SendHeroListCommandAsync(
+        bool showInServerConsole)
+    {
+        await _heroListCommandSendLock.WaitAsync(
+            _lifetimeCts.Token);
+
+        LinkedListNode<bool>? visibilityRequest = null;
+        var sent = false;
+
+        try
+        {
+            lock (_heroListOutputLock)
+            {
+                visibilityRequest =
+                    _pendingHeroListOutputVisibility.AddLast(
+                        showInServerConsole);
+            }
+
+            sent = await _processManager.SendCommandAsync(
+                "coop.debug.hero.list",
+                _lifetimeCts.Token);
+
+            return sent;
+        }
+        finally
+        {
+            if (!sent && visibilityRequest is not null)
+            {
+                lock (_heroListOutputLock)
+                {
+                    if (visibilityRequest.List is not null)
+                    {
+                        _pendingHeroListOutputVisibility.Remove(
+                            visibilityRequest);
+                    }
+                }
+            }
+
+            _heroListCommandSendLock.Release();
+        }
+    }
+
+
+    private static bool IsHeroListCommand(
+        string command) =>
+        string.Equals(
+            command.Trim(),
+            "coop.debug.hero.list",
+            StringComparison.OrdinalIgnoreCase);
+
+
+    private bool BeginHeroListResponse()
+    {
+        lock (_heroListOutputLock)
+        {
+            if (_pendingHeroListOutputVisibility.First is { } request)
+            {
+                _showActiveHeroListResponse = request.Value;
+                _pendingHeroListOutputVisibility.RemoveFirst();
+            }
+            else
+            {
+                _showActiveHeroListResponse = false;
+            }
+
+            return _showActiveHeroListResponse;
+        }
+    }
+
+
+    private bool ShouldShowActiveHeroListResponse()
+    {
+        lock (_heroListOutputLock)
+        {
+            return _showActiveHeroListResponse;
         }
     }
 
@@ -2393,6 +2523,12 @@ public sealed class MainViewModel : BindableBase, IDisposable
             }
 
             _heroListRequestPending = false;
+
+            lock (_heroListOutputLock)
+            {
+                _showActiveHeroListResponse = false;
+            }
+
             await RebuildSessionIdentitiesAsync();
         }
         catch (OperationCanceledException)
@@ -2683,6 +2819,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         var heroListEntries =
             new List<(string HeroId, string CharacterName)>();
 
+        var heroListEchoObserved = false;
+
         var successfulSaveCount =
             0;
 
@@ -2708,6 +2846,16 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 launcherUnexpectedExitDetected = true;
             }
 
+            if (IsHeroListCommandEcho(line))
+            {
+                heroListEchoObserved = true;
+
+                if (BeginHeroListResponse())
+                    visibleLines.Add(line);
+
+                continue;
+            }
+
             if (TryParseHeroListLine(
                     line,
                     out var heroId,
@@ -2716,15 +2864,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 heroListEntries.Add((heroId, characterName));
 
                 // coop.debug.hero.list can emit hundreds of rows. BCS Tool
-                // consumes those rows as identity data rather than flooding
-                // the user-facing Server Console with internal lookup output.
-                continue;
-            }
+                // always consumes those rows as identity data. Only a manually
+                // requested response is also copied into the Server Console.
+                if (ShouldShowActiveHeroListResponse())
+                    visibleLines.Add(line);
 
-            if (IsHeroListCommandEcho(line))
-            {
-                // This is an internal identity lookup, not a user command.
-                // Keep its echo out of the visible Server Console.
                 continue;
             }
 
@@ -2756,7 +2900,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
                         json);
                 }
 
-                if (heroListEntries.Count > 0)
+                if (
+                    heroListEntries.Count > 0 ||
+                    heroListEchoObserved)
                 {
                     foreach (var entry in heroListEntries)
                     {
@@ -3676,6 +3822,14 @@ public sealed class MainViewModel : BindableBase, IDisposable
     /// </summary>
     private void RecalculateNextRestart()
     {
+        if (Settings.RestartEveryHours == 0)
+        {
+            _nextRestartAt = null;
+            _lastWarningKey = null;
+            NextRestartText = "Scheduled restart disabled";
+            return;
+        }
+
         if (!_serverReady || ServerState != ServerState.Ready)
         {
             _nextRestartAt = null;
@@ -3817,6 +3971,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _processManager.Dispose();
         _operationLock.Dispose();
         _accessControlLock.Dispose();
+        _heroListCommandSendLock.Dispose();
         _lifetimeCts.Dispose();
     }
 }

@@ -15,7 +15,7 @@ public partial class RestartScheduleWindow : Window
     private string _savedSnapshot;
 
     public IReadOnlyList<int> RestartHourOptions { get; } =
-        Enumerable.Range(1, 24).ToArray();
+        Enumerable.Range(0, 25).ToArray();
 
     public IReadOnlyList<int> MinuteOptions { get; } =
         Enumerable.Range(0, 60).ToArray();
@@ -74,7 +74,7 @@ public partial class RestartScheduleWindow : Window
             MessageBox.Show(
                 this,
                 $"Could not apply the restart schedule.\n\n{ex.Message}",
-                "Restart Schedule",
+                "Restart Settings",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             return false;
@@ -105,7 +105,7 @@ public partial class RestartScheduleWindow : Window
         var result = MessageBox.Show(
             this,
             "Close without applying the restart schedule changes?",
-            "Unsaved Restart Schedule",
+            "Unsaved Restart Settings",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
             MessageBoxResult.No);

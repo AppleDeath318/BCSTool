@@ -25,6 +25,13 @@ public sealed class RestartScheduler
     /// </summary>
     public DateTime CalculateNextRestart(DateTime now, ServerSettings settings)
     {
+        if (settings.RestartEveryHours is < 1 or > 24)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                "Restart scheduling must be enabled with an interval between 1 and 24 hours.");
+        }
+
         var cursor = new DateTime(
             now.Year,
             now.Month,

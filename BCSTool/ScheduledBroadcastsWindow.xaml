@@ -21,14 +21,14 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
-                Background="{DynamicResource ControlAltBackgroundBrush}"
-                BorderBrush="{DynamicResource ControlBorderBrush}"
+                Background="{DynamicResource WarningPanelBackgroundBrush}"
+                BorderBrush="{DynamicResource WarningPanelBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="4"
                 Padding="9"
                 Margin="0,0,0,10">
             <TextBlock TextWrapping="Wrap"
-                       Text="Each enabled message has its own interval. Timers begin when the server reaches SERVING and reset after a restart, crash recovery, or Apply."/>
+                       Text="Each enabled message has its own interval. Timers reset after a restart, crash recovery, or Apply."/>
         </Border>
 
         <DataGrid x:Name="BroadcastGrid"
@@ -38,7 +38,8 @@
                   CanUserAddRows="False"
                   CanUserDeleteRows="False"
                   IsReadOnly="True"
-                  SelectionMode="Single"
+                  SelectionMode="Extended"
+                  SelectionUnit="FullRow"
                   MouseDoubleClick="BroadcastGrid_MouseDoubleClick">
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="Enabled"

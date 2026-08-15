@@ -24,6 +24,7 @@
     <SolidColorBrush x:Key="ConsoleWarningBrush" Color="#FFFFD166"/>
     <SolidColorBrush x:Key="ConsoleSuccessBrush" Color="#FF6DD17C"/>
     <SolidColorBrush x:Key="ConsoleActionBrush" Color="#FF5AB0F2"/>
+    <SolidColorBrush x:Key="ConsoleUserInputBrush" Color="#FF4DD0E1"/>
     <SolidColorBrush x:Key="ConsoleConnectingBrush" Color="#FF5CCFE6"/>
     <SolidColorBrush x:Key="ConsoleDisconnectedBrush" Color="#FFFFB454"/>
     <SolidColorBrush x:Key="ConsoleMutedBrush" Color="#FFA0A0A0"/>

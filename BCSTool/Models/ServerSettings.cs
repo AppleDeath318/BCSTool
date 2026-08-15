@@ -18,7 +18,7 @@ public sealed class ServerSettings
     public string ServerDirectory { get; set; } = "";
     public string ServerExecutable { get; set; } = "BannerlordCoopServer.exe";
 
-    // Clock-aligned restart interval.
+    // Clock-aligned restart interval. 0 disables scheduled restarts.
     // Example: 2 => 00:xx, 02:xx, 04:xx, 06:xx...
     public int RestartEveryHours { get; set; } = 2;
     // Minute inside the scheduled hour, e.g. 55 => 02:55.
@@ -54,8 +54,7 @@ public sealed class ServerSettings
     public string BroadcastSaving { get; set; } = "Saving Files...";
     public string BroadcastRestarting { get; set; } = "Restarting...";
 
-    // Multiple independent recurring announcements. Each interval begins
-    // when the dedicated server reaches SERVING.
+    // Multiple independent recurring announcements.
     public List<ScheduledBroadcastEntry> ScheduledBroadcasts { get; set; } = new();
 
     /// <summary>
@@ -86,8 +85,8 @@ public sealed class ServerSettings
     {
         var errors = new List<string>();
 
-        if (RestartEveryHours is < 1 or > 24)
-            errors.Add("Restart interval must be between 1 and 24 hours.");
+        if (RestartEveryHours is < 0 or > 24)
+            errors.Add("Restart interval must be 0 (disabled) or between 1 and 24 hours.");
 
         if (RestartMinute is < 0 or > 59)
             errors.Add("Restart minute must be between 0 and 59.");

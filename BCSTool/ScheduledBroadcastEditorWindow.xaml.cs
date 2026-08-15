@@ -7,13 +7,17 @@ namespace BCSTool;
 public partial class ScheduledBroadcastEditorWindow : Window
 {
     private readonly Guid _entryId;
+    private readonly int _maximumIntervalMinutes;
 
     public ScheduledBroadcastEntry? Result { get; private set; }
 
     public ScheduledBroadcastEditorWindow(
+        int maximumIntervalMinutes,
         ScheduledBroadcastEntry? entry = null)
     {
         InitializeComponent();
+
+        _maximumIntervalMinutes = maximumIntervalMinutes;
 
         _entryId =
             entry is not null && entry.Id != Guid.Empty
@@ -33,14 +37,14 @@ public partial class ScheduledBroadcastEditorWindow : Window
             !int.TryParse(
                 IntervalTextBox.Text.Trim(),
                 out var intervalMinutes) ||
-            intervalMinutes is < ScheduledBroadcastEntry.MinimumIntervalMinutes or
-                > ScheduledBroadcastEntry.MaximumIntervalMinutes)
+            intervalMinutes < ScheduledBroadcastEntry.MinimumIntervalMinutes ||
+            intervalMinutes > _maximumIntervalMinutes)
         {
             MessageBox.Show(
                 this,
-                $"Enter an interval between " +
+                $"The interval is invalid. Enter a value between " +
                 $"{ScheduledBroadcastEntry.MinimumIntervalMinutes} and " +
-                $"{ScheduledBroadcastEntry.MaximumIntervalMinutes} minutes.",
+                $"{_maximumIntervalMinutes} minutes.",
                 "Scheduled Broadcast",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);

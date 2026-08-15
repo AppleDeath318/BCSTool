@@ -136,10 +136,13 @@ public sealed class SettingsService
                 settings.ServerExecutable);
 
         settings.RestartEveryHours =
-            ReadInt(
-                key,
-                nameof(ServerSettings.RestartEveryHours),
-                settings.RestartEveryHours);
+            Math.Clamp(
+                ReadInt(
+                    key,
+                    nameof(ServerSettings.RestartEveryHours),
+                    settings.RestartEveryHours),
+                0,
+                24);
 
         settings.RestartMinute =
             ReadInt(
@@ -243,7 +246,7 @@ public sealed class SettingsService
     ///
     /// This is intentionally separate from restart settings so choosing or
     /// auto-detecting BannerlordCoopServer.exe persists immediately without
-    /// depending on the Restart Schedule UI.
+    /// depending on the Restart Settings UI.
     /// </summary>
     public Task SaveServerExecutableAsync(
         ServerSettings settings)
@@ -274,7 +277,7 @@ public sealed class SettingsService
 
 
     /// <summary>
-    /// Saves only the settings controlled by the Restart Schedule window.
+    /// Saves only the settings controlled by the Restart Settings window.
     ///
     /// Server executable selection is deliberately not written here.
     /// </summary>

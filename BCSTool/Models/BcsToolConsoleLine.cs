@@ -6,6 +6,7 @@ namespace BCSTool.Models;
 public enum BcsToolMessageType
 {
     Information,
+    UserInput,
     Action,
     Success,
     Warning,
@@ -51,6 +52,7 @@ public sealed class BcsToolConsoleLine
         return messageType switch
         {
             BcsToolMessageType.Information => "ConsoleForegroundBrush",
+            BcsToolMessageType.UserInput => "ConsoleUserInputBrush",
             BcsToolMessageType.Action => "ConsoleActionBrush",
             BcsToolMessageType.Success => "ConsoleSuccessBrush",
             BcsToolMessageType.Warning => "ConsoleWarningBrush",

@@ -212,11 +212,12 @@ BCS Tool stages the selected pair and temporarily preserves the current active p
 
 The **Advanced Settings** section opens two dedicated scheduling windows.
 
-### Restart Schedule
+### Server Restart
 
 BCS Tool can periodically restart the server at a configured interval and
 minute. Schedule edits do not affect the active configuration until **Apply**
-or **Apply & Close** is pressed.
+or **Apply & Close** is pressed. Set **Restart every (hours)** to `0` to disable
+scheduled restarts without disabling automatic crash recovery.
 
 Before a scheduled restart, it can:
 
@@ -229,15 +230,19 @@ Crash recovery always restarts the server automatically if the managed process
 exits unexpectedly. It does not create a separate BCS Tool crash backup;
 Bannerlord Coop's native backups remain available for manual loading.
 
-### Scheduled Broadcasts
+### Server Broadcasts
 
 The **Scheduled Broadcasts** window manages multiple recurring server messages.
-Every entry has its own enabled state, interval from 5 to 1440 minutes, and
-message content. Add, edit, or remove entries, then press **Apply** or **Apply &
-Close** to persist the list and activate the new schedules.
+Every entry has its own enabled state, interval, and message content. The
+minimum interval is 1 minute. The maximum is the scheduled restart interval in
+minutes—for example, a 2-hour restart schedule allows up to 120 minutes. When
+scheduled restarts are disabled, the maximum is 1440 minutes. Add, edit, or
+remove entries, then press **Apply** or **Apply & Close** to persist the list and
+activate the new schedules. Shift-click or Ctrl-click to remove multiple
+entries together.
 
-Each timer begins when the server reaches `SERVING`. Timers reset after Apply,
-a controlled restart, or crash recovery. Missed broadcasts are not replayed.
+Timers reset after Apply, a controlled restart, or crash recovery. Missed
+broadcasts are not replayed.
 Messages due during the restart-warning countdown are skipped so restart
 notices remain clear. If several messages become due together, BCS Tool sends
 them sequentially with a short gap. Every attempted scheduled broadcast is
