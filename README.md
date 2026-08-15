@@ -12,8 +12,7 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 
 * Manual server restart
 * Automatic scheduled restart
-* Restart warning message broadcast
-* Multiple independently scheduled server broadcasts
+* Automatic scheduled server broadcasts
 * Automatic crash recovery
 * Built-in live server log console with local command input
 * SteamID64 banlist and whitelist access control (Beta)
@@ -236,10 +235,9 @@ The **Scheduled Broadcasts** window manages multiple recurring server messages.
 Every entry has its own enabled state, interval, and message content. The
 minimum interval is 1 minute. The maximum is the scheduled restart interval in
 minutes—for example, a 2-hour restart schedule allows up to 120 minutes. When
-scheduled restarts are disabled, the maximum is 1440 minutes. Add, edit, or
-remove entries, then press **Apply** or **Apply & Close** to persist the list and
-activate the new schedules. Shift-click or Ctrl-click to remove multiple
-entries together.
+scheduled restarts are disabled, the maximum is 24 hours (1440 minutes). Add, 
+edit, or remove entries, then press **Apply** or **Apply & Close** to persist 
+the list and activate the new schedules.
 
 Timers reset after Apply, a controlled restart, or crash recovery. Missed
 broadcasts are not replayed.
