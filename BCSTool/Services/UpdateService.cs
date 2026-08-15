@@ -66,6 +66,8 @@ public sealed class UpdateService : IDisposable
 
     public string? ErrorMessage { get; private set; }
 
+    public int? DownloadProgressPercent { get; private set; }
+
     public async Task CheckForUpdatesAsync(
         CancellationToken cancellationToken = default)
     {
@@ -204,6 +206,7 @@ public sealed class UpdateService : IDisposable
                 ?? throw new InvalidOperationException(
                     "No update is currently available.");
 
+            DownloadProgressPercent = null;
             SetState(UpdateCheckState.Downloading);
 
             updateDirectory = Path.Combine(
@@ -221,11 +224,15 @@ public sealed class UpdateService : IDisposable
             await DownloadFileAsync(
                 release.ExecutableDownloadUri,
                 downloadedExecutablePath,
-                cancellationToken);
+                reportProgress: true,
+                cancellationToken: cancellationToken);
             await DownloadFileAsync(
                 release.ChecksumDownloadUri,
                 checksumPath,
-                cancellationToken);
+                reportProgress: false,
+                cancellationToken: cancellationToken);
+
+            SetDownloadProgress(100);
 
             await VerifySha256Async(
                 downloadedExecutablePath,
@@ -316,6 +323,7 @@ public sealed class UpdateService : IDisposable
     private async Task DownloadFileAsync(
         Uri downloadUri,
         string destinationPath,
+        bool reportProgress,
         CancellationToken cancellationToken)
     {
         using var response = await _httpClient.GetAsync(
@@ -335,7 +343,58 @@ public sealed class UpdateService : IDisposable
             bufferSize: 81920,
             useAsync: true);
 
-        await source.CopyToAsync(destination, cancellationToken);
+        var contentLength = response.Content.Headers.ContentLength;
+
+        if (reportProgress)
+        {
+            SetDownloadProgress(
+                contentLength is > 0
+                    ? 0
+                    : null);
+        }
+
+        var buffer = new byte[81920];
+        long totalBytesRead = 0;
+
+        while (true)
+        {
+            var bytesRead = await source.ReadAsync(
+                buffer.AsMemory(0, buffer.Length),
+                cancellationToken);
+
+            if (bytesRead == 0)
+                break;
+
+            await destination.WriteAsync(
+                buffer.AsMemory(0, bytesRead),
+                cancellationToken);
+
+            totalBytesRead += bytesRead;
+
+            if (reportProgress && contentLength is > 0)
+            {
+                SetDownloadProgress(
+                    (int)Math.Clamp(
+                        totalBytesRead * 100L / contentLength.Value,
+                        0,
+                        100));
+            }
+        }
+
+        if (reportProgress)
+            SetDownloadProgress(100);
+    }
+
+    private void SetDownloadProgress(int? percentage)
+    {
+        if (percentage is not null)
+            percentage = Math.Clamp(percentage.Value, 0, 100);
+
+        if (DownloadProgressPercent == percentage)
+            return;
+
+        DownloadProgressPercent = percentage;
+        StatusChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private static async Task VerifySha256Async(
@@ -388,6 +447,9 @@ public sealed class UpdateService : IDisposable
     private void SetState(UpdateCheckState state)
     {
         State = state;
+
+        if (state != UpdateCheckState.Downloading)
+            DownloadProgressPercent = null;
 
         if (state != UpdateCheckState.Failed)
             ErrorMessage = null;

@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="About BCS Tool"
         Width="430"
-        Height="430"
+        Height="400"
         MinWidth="430"
-        MinHeight="430"
+        MinHeight="400"
         Background="{DynamicResource AppBackgroundBrush}"
         Foreground="{DynamicResource AppForegroundBrush}"
         ResizeMode="NoResize"
@@ -27,7 +27,6 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -44,14 +43,7 @@
                    HorizontalAlignment="Center"
                    Foreground="{DynamicResource MutedForegroundBrush}"/>
 
-        <TextBlock Grid.Row="2"
-                   Margin="0,14,0,0"
-                   Text="Bannerlord Coop dedicated server management tool"
-                   TextWrapping="Wrap"
-                   TextAlignment="Center"
-                   HorizontalAlignment="Center"/>
-
-        <StackPanel Grid.Row="3"
+        <StackPanel Grid.Row="2"
                     Margin="0,14,0,0"
                     HorizontalAlignment="Center">
             <TextBlock Text="Developer: Apar"
@@ -77,17 +69,35 @@
             </TextBlock>
         </StackPanel>
 
-        <TextBlock x:Name="ErrorText"
-                   Grid.Row="4"
-                   Margin="0,12,0,0"
-                   Foreground="{DynamicResource ErrorForegroundBrush}"
-                   TextWrapping="Wrap"
-                   TextAlignment="Center"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Visibility="Collapsed"/>
+        <Grid Grid.Row="3"
+              Margin="0,12,0,0"
+              VerticalAlignment="Center">
+            <TextBlock x:Name="ErrorText"
+                       Foreground="{DynamicResource ErrorForegroundBrush}"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Visibility="Collapsed"/>
 
-        <Grid Grid.Row="5"
+            <StackPanel x:Name="DownloadProgressPanel"
+                        Visibility="Collapsed">
+                <ProgressBar x:Name="DownloadProgressBar"
+                             Height="12"
+                             Minimum="0"
+                             Maximum="100"
+                             Background="{DynamicResource ControlBackgroundBrush}"
+                             Foreground="{DynamicResource AccentForegroundBrush}"
+                             BorderBrush="{DynamicResource ControlBorderBrush}"/>
+
+                <TextBlock x:Name="DownloadProgressText"
+                           Margin="0,5,0,0"
+                           HorizontalAlignment="Center"
+                           Foreground="{DynamicResource MutedForegroundBrush}"/>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="4"
               Margin="0,14,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>

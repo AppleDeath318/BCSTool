@@ -136,6 +136,7 @@ public partial class AboutWindow : Window
     {
         ErrorText.Visibility = Visibility.Collapsed;
         ErrorText.Text = "";
+        DownloadProgressPanel.Visibility = Visibility.Collapsed;
 
         switch (_updateService.State)
         {
@@ -148,7 +149,7 @@ public partial class AboutWindow : Window
                 break;
 
             case UpdateCheckState.UpToDate:
-                SetUpdateButton("Up to Date", false);
+                SetUpdateButton("Already Up to Date", false);
                 break;
 
             case UpdateCheckState.UpdateAvailable:
@@ -162,7 +163,7 @@ public partial class AboutWindow : Window
                 break;
 
             case UpdateCheckState.Downloading:
-                SetUpdateButton("Downloading...", false);
+                ShowDownloadProgress();
                 break;
 
             case UpdateCheckState.Installing:
@@ -175,6 +176,24 @@ public partial class AboutWindow : Window
                 ErrorText.Visibility = Visibility.Visible;
                 break;
         }
+    }
+
+    private void ShowDownloadProgress()
+    {
+        var progress = _updateService.DownloadProgressPercent;
+
+        DownloadProgressPanel.Visibility = Visibility.Visible;
+        DownloadProgressBar.IsIndeterminate = progress is null;
+        DownloadProgressBar.Value = progress ?? 0;
+        DownloadProgressText.Text = progress is null
+            ? "Downloading update..."
+            : $"Downloading update... {progress.Value}%";
+
+        SetUpdateButton(
+            progress is null
+                ? "Downloading..."
+                : $"Downloading... {progress.Value}%",
+            false);
     }
 
     private void SetUpdateButton(

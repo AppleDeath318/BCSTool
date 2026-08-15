@@ -187,7 +187,7 @@ public partial class MainWindow : Window
             _updateService.AvailableRelease is not null)
         {
             VersionLinkButton.Content =
-                $"⬆ v{_updateService.AvailableRelease.Version} available";
+                $"↓ Update v{_updateService.AvailableRelease.Version} available";
             VersionLinkButton.SetResourceReference(
                 Control.ForegroundProperty,
                 "AccentForegroundBrush");
