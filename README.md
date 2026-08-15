@@ -20,8 +20,6 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Server configuration modification
 * Mod configuration modification
 * Backup restore
-* Startup update check with verified in-app installation
-* Persistent Light and Dark interface themes
 
 ## Requirements
 
@@ -51,31 +49,21 @@ v<version>.exe` filename.
 BCS Tool checks the latest stable GitHub release once when the application
 opens. It does not repeatedly check while it remains running.
 
-The version number in the bottom-right corner opens **About BCS Tool**. Its
-update button changes with the current state: **Check for Updates**,
-**Checking...**, **Up to Date**, **Download vX.Y.Z**, or **Try Again**. When an
+The version number in the bottom-right corner opens **About BCS Tool**. When an
 update is available, the bottom-right version link also displays the available
 version.
 
 Installing an update is always user initiated and requires the managed server
 to be stopped. BCS Tool downloads both the versioned executable and its
 `.sha256` release asset, verifies the executable, closes, replaces the old
-version, and reopens. The About window also includes a link to the GitHub
+version, and reopens. The About window also includes a link to this GitHub
 repository.
 
 ## Appearance
 
 Use the **Theme** selector in the bottom-right footer to switch between Light
-and Dark mode without restarting BCS Tool. Light mode preserves the original
-appearance. Dark mode applies across the main window and all configuration,
-access-control, player-list, backup, and About windows.
-
-Dark mode uses black Server and BCS Tool consoles with brighter semantic colors.
-BCS Tool messages are explicitly categorized as Information, Action, Success,
-Warning, or Error when they are emitted; message text, player names, and notes
-do not influence their color. Existing console lines are recolored immediately
-when the theme changes. The selected theme is saved under the normal BCS Tool
-Registry settings and restored on the next launch.
+and Dark mode. The selected theme is saved under the normal BCS Tool Registry 
+settings and restored on the next launch.
 
 ## Getting Started
 
@@ -136,11 +124,6 @@ A player whose identity is still unresolved, including someone creating a
 character, remains **Pending** until the current server session confirms the 
 character, Hero ID, and SteamID64 mapping. Denied players and the rule that 
 caused each kick are recorded in the BCS Tool Console.
-
-The Player Information panel also provides right-click actions:
-
-* Right-click a character-name row to send a **Kick** command or add that resolved player to the banlist.
-* Right-click a SteamID row to copy that SteamID64.
 
 The access lists and learned identity data are stored under:
 
