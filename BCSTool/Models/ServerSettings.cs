@@ -40,12 +40,10 @@ public sealed class ServerSettings
     // Do NOT guess this value from unrelated console forwarding messages.
     public int ServerPort { get; set; } = 0;
 
-    // LEGACY BCS SAVE BACKUPS (disabled): Bannerlord Coop now owns native
-    // per-world backup rotation. Retained only for historical source reference.
-#if false
-    public bool SaveBackupsEnabled { get; set; } = true;
+    // Optional additional paired-save history under Game Saves\BCS Backups.
+    // Disabled by default; Bannerlord Coop's native backups remain untouched.
+    public bool SaveBackupsEnabled { get; set; } = false;
     public int SaveBackupCount { get; set; } = 5;
-#endif
 
     // Player access control is enforced by SteamID64 after BCS Tool resolves
     // the current session's character -> HeroId -> ControllerId chain.
@@ -97,11 +95,8 @@ public sealed class ServerSettings
         if (ServerPort is < 0 or > 65535)
             errors.Add("Server port must be 0 (disabled) or between 1 and 65535.");
 
-        // LEGACY BCS SAVE BACKUPS (disabled): custom retention validation.
-#if false
         if (SaveBackupCount is < 1 or > 5)
             errors.Add("Save backup count must be between 1 and 5.");
-#endif
 
         if (SaveWaitSeconds < 0)
             errors.Add("Save wait cannot be negative.");

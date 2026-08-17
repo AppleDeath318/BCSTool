@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -66,8 +67,12 @@ public partial class ServerConfigurationWindow : Window
             SetPasswordControls(
                 _config.Password);
 
-            // LEGACY BCS SAVE BACKUPS (disabled): the custom rotation controls
-            // were removed after Bannerlord Coop added native per-world backups.
+            SaveBackupCountComboBox.ItemsSource =
+                _viewModel.SaveBackupCountOptions;
+            SaveBackupsEnabledCheckBox.IsChecked =
+                _viewModel.Settings.SaveBackupsEnabled;
+            SaveBackupCountComboBox.SelectedItem =
+                _viewModel.Settings.SaveBackupCount;
 
             _savedConfigurationSnapshot =
                 CreateConfigurationSnapshot();
@@ -90,7 +95,7 @@ public partial class ServerConfigurationWindow : Window
     /// <summary>
     /// Saves Bannerlord's server configuration to server-config.json.
     /// </summary>
-    private bool SaveConfiguration()
+    private async Task<bool> SaveConfigurationAsync()
     {
         if (HasValidationErrors(this))
         {
@@ -109,8 +114,14 @@ public partial class ServerConfigurationWindow : Window
             _configService.SaveServerConfig(
                 _config);
 
-            // LEGACY BCS SAVE BACKUPS (disabled): custom backup settings are
-            // no longer written because native backup rotation owns them.
+            var backupCount =
+                SaveBackupCountComboBox.SelectedItem is int selectedCount
+                    ? selectedCount
+                    : _viewModel.Settings.SaveBackupCount;
+
+            await _viewModel.UpdateSaveBackupSettingsAsync(
+                SaveBackupsEnabledCheckBox.IsChecked == true,
+                backupCount);
 
             _savedConfigurationSnapshot =
                 CreateConfigurationSnapshot();
@@ -145,7 +156,11 @@ public partial class ServerConfigurationWindow : Window
                 _config.Steam,
                 _config.TraceTick,
                 _config.TracePublish,
-                _config.TraceBandits);
+                _config.TraceBandits,
+                SaveBackupsEnabledCheckBox.IsChecked == true,
+                SaveBackupCountComboBox.SelectedItem is int backupCount
+                    ? backupCount
+                    : _viewModel.Settings.SaveBackupCount);
     }
 
 
@@ -192,19 +207,19 @@ public partial class ServerConfigurationWindow : Window
     }
 
 
-    private void Save_Click(
+    private async void Save_Click(
         object sender,
         RoutedEventArgs e)
     {
-        SaveConfiguration();
+        await SaveConfigurationAsync();
     }
 
 
-    private void SaveAndClose_Click(
+    private async void SaveAndClose_Click(
         object sender,
         RoutedEventArgs e)
     {
-        if (SaveConfiguration())
+        if (await SaveConfigurationAsync())
         {
             Close();
         }
@@ -282,9 +297,6 @@ public partial class ServerConfigurationWindow : Window
     }
 
 
-    // LEGACY BCS SAVE BACKUPS (disabled): the old BCS Backups folder button
-    // is retained only as historical code and is not compiled or shown.
-#if false
     private void OpenBackupFolder_Click(
         object sender,
         RoutedEventArgs e)
@@ -339,7 +351,6 @@ public partial class ServerConfigurationWindow : Window
                 MessageBoxImage.Error);
         }
     }
-#endif
 
 
     /// <summary>
@@ -489,7 +500,9 @@ public partial class ServerConfigurationWindow : Window
         bool Steam,
         bool TraceTick,
         bool TracePublish,
-        bool TraceBandits);
+        bool TraceBandits,
+        bool SaveBackupsEnabled,
+        int SaveBackupCount);
 
 
     private static bool HasValidationErrors(

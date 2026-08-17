@@ -96,6 +96,8 @@ public partial class App : Application
             coopConfigService);
         var nativeSaveBackupService = new NativeSaveBackupService(
             coopConfigService);
+        var saveBackupService = new SaveBackupService(
+            coopConfigService);
         var playerAccessService = new PlayerAccessService(
             logService,
             coopConfigService);
@@ -111,6 +113,7 @@ public partial class App : Application
             serverLogMonitor,
             serverExecutableLocator,
             nativeSaveBackupService,
+            saveBackupService,
             playerAccessService);
 
         var window = new MainWindow(

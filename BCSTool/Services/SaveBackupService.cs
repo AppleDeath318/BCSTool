@@ -6,11 +6,9 @@ using System.Threading.Tasks;
 
 namespace BCSTool.Services;
 
-// LEGACY BCS SAVE BACKUPS (disabled): this entire custom rotating-backup and
-// crash-backup implementation was superseded by Bannerlord Coop's native
-// per-world backups. It is excluded from compilation and retained only as
-// historical source reference.
-#if false
+// Optional BCS Tool backup rotation. Bannerlord Coop's native backup pairs are
+// never altered; this service maintains an additional configurable history in
+// the separate BCS Backups directory.
 
 /// <summary>
 /// Maintains a bounded rotating history of Bannerlord Coop campaign saves.
@@ -43,7 +41,6 @@ public sealed class SaveBackupService
     public const int CrashBackupGeneration = 0;
     public const int MinimumBackupCount = 1;
     public const int MaximumBackupCount = 5;
-    private const int NativePerWorldBackupCount = 2;
 
     private readonly CoopConfigService _configService;
     private readonly SemaphoreSlim _rotationLock = new(1, 1);
@@ -82,7 +79,8 @@ public sealed class SaveBackupService
             "BCS Backups");
 
     /// <summary>
-    /// Dedicated crash-safety snapshot directory.
+    /// LEGACY CRASH SAVE BACKUP (disabled): no runtime path creates crash
+    /// snapshots. These members remain only with the historical restore code.
     ///
     /// A crash snapshot is copied from the newest complete rotating backup,
     /// never from the crash-time active save. It is outside normal backup
@@ -148,10 +146,6 @@ public sealed class SaveBackupService
                     newestBackupPair.JsonPath,
                     sourceSnapshot.Json))
             {
-                await RemoveNativePerWorldBackupsAsync(
-                    activePair.BaseName,
-                    cancellationToken);
-
                 return null;
             }
 
@@ -194,14 +188,6 @@ public sealed class SaveBackupService
             DeleteBeyondRetention(
                 activePair.BaseName,
                 retentionCount);
-
-            // Bannerlord Coop independently keeps two per-world autosave
-            // backups beside the active save. Once BCS Tool has safely stored
-            // its own retained copy in BCS Backups, remove those duplicate
-            // root-level pairs so Game Saves contains only the active save.
-            await RemoveNativePerWorldBackupsAsync(
-                activePair.BaseName,
-                cancellationToken);
 
             return
                 new SaveBackupResult(
@@ -398,8 +384,9 @@ public sealed class SaveBackupService
 
 
     /// <summary>
-    /// Freezes the newest COMPLETE retained rotating backup as a dedicated
-    /// crash backup without modifying the active campaign save.
+    /// LEGACY CRASH SAVE BACKUP (disabled): retained for source history and
+    /// never called by the v0.4.1 runtime. It would freeze the newest complete
+    /// backup without modifying the active campaign save.
     ///
     /// Automatic crash recovery continues from the current active save. The
     /// frozen crash backup is only a manual recovery point in case the active
@@ -801,53 +788,6 @@ public sealed class SaveBackupService
                     baseName + ".crashbackup.json"));
     }
 
-    private async Task RemoveNativePerWorldBackupsAsync(
-        string baseName,
-        CancellationToken cancellationToken)
-    {
-        for (
-            var generation = 1;
-            generation <= NativePerWorldBackupCount;
-            generation++)
-        {
-            var nativeBaseName =
-                $"{baseName}.backup{generation}";
-
-            var nativePair =
-                new SaveFilePair(
-                    baseName,
-                    Path.Combine(
-                        GameSavesDirectory,
-                        nativeBaseName + ".sav"),
-                    Path.Combine(
-                        GameSavesDirectory,
-                        nativeBaseName + ".json"));
-
-            for (var attempt = 1; attempt <= 4; attempt++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    DeletePair(nativePair);
-                    break;
-                }
-                catch (IOException) when (attempt < 4)
-                {
-                    await Task.Delay(
-                        TimeSpan.FromMilliseconds(250),
-                        cancellationToken);
-                }
-                catch (UnauthorizedAccessException) when (attempt < 4)
-                {
-                    await Task.Delay(
-                        TimeSpan.FromMilliseconds(250),
-                        cancellationToken);
-                }
-            }
-        }
-    }
-
     private void DeleteBeyondRetention(
         string baseName,
         int retentionCount)
@@ -1152,4 +1092,3 @@ public sealed class SaveBackupService
         long Length,
         DateTime LastWriteTimeUtc);
 }
-#endif

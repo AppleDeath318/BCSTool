@@ -155,6 +155,63 @@
                     </Grid>
                 </GroupBox>
 
+                <GroupBox Header="Save Backups"
+                          Margin="0,0,0,10">
+                    <Grid Margin="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <CheckBox x:Name="SaveBackupsEnabledCheckBox"
+                                  Grid.Row="0"
+                                  Grid.Column="0"
+                                  Grid.ColumnSpan="3"
+                                  Content="Enable BCS Tool save backups"
+                                  Margin="0,0,0,8"/>
+
+                        <TextBlock Grid.Row="1"
+                                   Grid.Column="0"
+                                   Text="Backup generations to keep:"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+
+                        <ComboBox x:Name="SaveBackupCountComboBox"
+                                  Grid.Row="1"
+                                  Grid.Column="1"
+                                  Width="120"
+                                  HorizontalAlignment="Left"
+                                  VerticalContentAlignment="Center"
+                                  IsEnabled="{Binding IsChecked, ElementName=SaveBackupsEnabledCheckBox}"
+                                  Margin="0,0,8,8"/>
+
+                        <Button Grid.Row="1"
+                                Grid.Column="2"
+                                Width="150"
+                                Content="Open BCS Backup Folder"
+                                Click="OpenBackupFolder_Click"
+                                Margin="0,0,0,8"/>
+
+                        <Border Grid.Row="2"
+                                Grid.Column="0"
+                                Grid.ColumnSpan="3"
+                                Background="{DynamicResource WarningPanelBackgroundBrush}"
+                                BorderBrush="{DynamicResource WarningPanelBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="8">
+                            <TextBlock Text="When disabled, only Bannerlord Coop's native two-generation backup method is used. When enabled, BCS Tool additionally stores configurable .sav/.json backup pairs in the BCS Backups folder."
+                                       TextWrapping="Wrap"/>
+                        </Border>
+                    </Grid>
+                </GroupBox>
+
                 <GroupBox Header="Connections"
                           Margin="0,0,0,10">
                     <Grid Margin="10">

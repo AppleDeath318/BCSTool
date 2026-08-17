@@ -197,9 +197,6 @@ public sealed class SettingsService
                 nameof(ServerSettings.ServerPort),
                 settings.ServerPort);
 
-        // LEGACY BCS SAVE BACKUPS (disabled): Registry values from the custom
-        // rotation feature are intentionally no longer loaded.
-#if false
         settings.SaveBackupsEnabled =
             ReadBool(
                 key,
@@ -214,7 +211,6 @@ public sealed class SettingsService
                     settings.SaveBackupCount),
                 1,
                 5);
-#endif
 
         settings.PlayerAccessMode =
             ReadPlayerAccessMode(
@@ -340,9 +336,9 @@ public sealed class SettingsService
     }
 
 
-    // LEGACY BCS SAVE BACKUPS (disabled): custom backup settings are retained
-    // as historical source and excluded from compilation.
-#if false
+    /// <summary>
+    /// Saves the optional BCS backup enable state and retention count.
+    /// </summary>
     public Task SaveBackupSettingsAsync(
         ServerSettings settings)
     {
@@ -372,7 +368,6 @@ public sealed class SettingsService
 
         return Task.CompletedTask;
     }
-#endif
 
 
     /// <summary>
@@ -493,9 +488,6 @@ public sealed class SettingsService
             nameof(ServerSettings.ServerPort),
             settings.ServerPort);
 
-        // LEGACY BCS SAVE BACKUPS (disabled): do not persist the superseded
-        // custom rotation settings.
-#if false
         WriteBool(
             key,
             nameof(ServerSettings.SaveBackupsEnabled),
@@ -508,7 +500,6 @@ public sealed class SettingsService
                 settings.SaveBackupCount,
                 1,
                 5));
-#endif
 
         WriteString(
             key,

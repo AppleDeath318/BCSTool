@@ -4,7 +4,7 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
-**Current release:** v0.4.0
+**Current release:** v0.4.1
 
 **Author:** [Apar](https://github.com/AppleDeath318)
 
@@ -19,6 +19,7 @@ It provides a graphical interface for starting, stopping, saving, restarting, mo
 * Automatic server executable detection
 * Server configuration modification
 * Mod configuration modification
+* Optional configurable BCS save-backup rotation
 * Backup restore
 
 ## Requirements
@@ -135,15 +136,16 @@ The access lists and learned identity data are stored under:
 The main files are `banlist.json`, `whitelist.json`, and
 `player-identities.json`.
 
-## Native Save Backups
+## Save Backups
 
 Bannerlord Coop maintains its own per-world backup history beside the active
-campaign save. BCS Tool does not create, rotate, or delete these backups.
+campaign save. BCS Tool never modifies or deletes these native backups.
 
-The previous **Save Backups** section, retention setting, and **Open Backup
-Folder** button have been removed. Existing files under `Game Saves\BCS
-Backups` are legacy files from older BCS Tool versions and are no longer read,
-written, or deleted by the application.
+Under **Server Configuration → Save Backups**, the optional **Enable BCS Tool
+save backups** setting adds a separate configurable backup history. It is
+disabled by default. When disabled, only Bannerlord Coop's native two-generation
+backup method is used. When enabled, BCS Tool creates an additional backup after
+each confirmed successful save and retains the selected 1–5 generations.
 
 A Bannerlord Coop save consists of two companion files with the same base name:
 
@@ -177,6 +179,18 @@ Both the active save and native backup pairs are stored under:
 Documents\Mount and Blade II Bannerlord\CoopData\DedicatedServer\Game Saves
 ```
 
+BCS Tool backup pairs are stored separately under:
+
+```text
+Documents\Mount and Blade II Bannerlord\CoopData\DedicatedServer\Game Saves\BCS Backups
+```
+
+Each BCS generation contains both companion files, such as
+`saveauto1.backup1.sav` and `saveauto1.backup1.json`. Generation 1 is newest.
+Duplicate successful-save notifications do not create duplicate generations.
+Disabling the option preserves existing BCS backups. Automatic crash recovery
+does not create a crash-time backup.
+
 ### Manual backup restore
 
 The **Load Backup** button under **Server Configuration → World / Saving**
@@ -204,8 +218,9 @@ The native backup files themselves remain unchanged after being loaded.
 
 BCS Tool stages the selected pair and temporarily preserves the current active pair while applying the restore to reduce the chance of an ordinary file-copy failure leaving the `.sav` and `.json` files mismatched.
 
-> **Note:** Bannerlord Coop owns backup generation. BCS Tool provides only the
-> manual loader and does not perform automatic corruption detection or rollback.
+> **Note:** Load Backup currently restores Bannerlord Coop's native backup
+> generations. Use **Open BCS Backup Folder** to access the additional BCS
+> backup pairs.
 
 ## Advanced Scheduling
 
@@ -307,7 +322,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.4.0
+0.4.1
 ```
 
 The application version is defined in:
@@ -319,7 +334,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.4.0</Version>
+<Version>0.4.1</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -327,7 +342,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.4.0
+v0.4.1
 ```
 
 ## Development Status

@@ -58,6 +58,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private readonly ServerLogMonitor _serverLogMonitor;
     private readonly ServerExecutableLocator _serverExecutableLocator;
     private readonly NativeSaveBackupService _nativeSaveBackupService;
+    private readonly SaveBackupService _saveBackupService;
     private readonly PlayerAccessService _playerAccessService;
 
     // Current-session identity evidence. Enforcement never trusts character
@@ -179,13 +180,10 @@ public sealed class MainViewModel : BindableBase, IDisposable
         PlayerInformationLine.Detail("(no one online)")
     };
 
-    // LEGACY BCS SAVE BACKUPS (disabled): custom retention choices.
-#if false
     public IReadOnlyList<int> SaveBackupCountOptions { get; } =
         Enumerable.Range(
             SaveBackupService.MinimumBackupCount,
             SaveBackupService.MaximumBackupCount).ToArray();
-#endif
 
     public IReadOnlyList<PlayerAccessMode> PlayerAccessModeOptions { get; } =
         Enum.GetValues<PlayerAccessMode>();
@@ -759,6 +757,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         ServerLogMonitor serverLogMonitor,
         ServerExecutableLocator serverExecutableLocator,
         NativeSaveBackupService nativeSaveBackupService,
+        SaveBackupService saveBackupService,
         PlayerAccessService playerAccessService)
     {
         _settingsService = settingsService;
@@ -770,6 +769,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _serverLogMonitor = serverLogMonitor;
         _serverExecutableLocator = serverExecutableLocator;
         _nativeSaveBackupService = nativeSaveBackupService;
+        _saveBackupService = saveBackupService;
         _playerAccessService = playerAccessService;
 
         _dispatcher = Application.Current.Dispatcher;
@@ -869,17 +869,13 @@ public sealed class MainViewModel : BindableBase, IDisposable
         AddToolMessage(
             $"Server executable: {ServerExecutableDisplay}",
             BcsToolMessageType.Information);
-        // LEGACY BCS SAVE BACKUPS (disabled): Bannerlord Coop now reports and
-        // owns its native per-world backup rotation.
-#if false
         AddToolMessage(
             Settings.SaveBackupsEnabled
-                ? $"Save backup rotation enabled; retaining {Settings.SaveBackupCount} generation(s)."
-                : "Save backup rotation disabled.",
+                ? $"BCS save backups enabled; retaining {Settings.SaveBackupCount} generation(s)."
+                : "BCS save backups disabled; using Bannerlord Coop native backups only.",
             Settings.SaveBackupsEnabled
                 ? BcsToolMessageType.Success
-                : BcsToolMessageType.Warning);
-#endif
+                : BcsToolMessageType.Information);
 
         await ReloadPlayerAccessListsAsync();
         AddToolMessage(
@@ -2038,9 +2034,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
             .Trim();
 
 
-    // LEGACY BCS SAVE BACKUPS (disabled): custom rotation settings and trimming
-    // are retained only as historical source reference.
-#if false
+    /// <summary>
+    /// Applies the optional BCS backup enable state and retention count.
+    /// Disabling it preserves existing BCS backups and leaves Coop's native
+    /// backup behavior untouched.
+    /// </summary>
     public async Task UpdateSaveBackupSettingsAsync(
         bool enabled,
         int backupCount)
@@ -2074,8 +2072,19 @@ public sealed class MainViewModel : BindableBase, IDisposable
         Settings.SaveBackupCount =
             backupCount;
 
-        await _settingsService.SaveBackupSettingsAsync(
-            Settings);
+        try
+        {
+            await _settingsService.SaveBackupSettingsAsync(
+                Settings);
+        }
+        catch
+        {
+            Settings.SaveBackupsEnabled =
+                previousEnabled;
+            Settings.SaveBackupCount =
+                previousBackupCount;
+            throw;
+        }
 
         // The filesystem only needs trimming when enabling backup rotation or
         // when reducing the retention count. Increasing the count does not
@@ -2104,17 +2113,22 @@ public sealed class MainViewModel : BindableBase, IDisposable
             {
                 // Same first-run case as above.
             }
+            catch (Exception ex)
+            {
+                AddToolMessage(
+                    $"BCS backup retention was saved, but existing backups could not be trimmed: {ex.Message}",
+                    BcsToolMessageType.Warning);
+            }
         }
 
         AddToolMessage(
             enabled
-                ? $"Save backup rotation enabled; retaining {backupCount} generation(s)."
-                : "Save backup rotation disabled; existing backups were preserved.",
+                ? $"BCS save backups enabled; retaining {backupCount} generation(s)."
+                : "BCS save backups disabled; existing BCS backups were preserved and native Coop backups remain active.",
             enabled
                 ? BcsToolMessageType.Success
-                : BcsToolMessageType.Warning);
+                : BcsToolMessageType.Information);
     }
-#endif
 
 
     private async Task ReloadPlayerAccessListsAsync()
@@ -2916,9 +2930,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
                     ScheduleHeroListCompletion();
                 }
 
-                // LEGACY BCS SAVE BACKUPS (disabled): successful save events
-                // no longer trigger a BCS Tool rotation.
-#if false
                 for (
                     var saveIndex = 0;
                     saveIndex < successfulSaveCount;
@@ -2926,7 +2937,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 {
                     _ = CreateSaveBackupAfterSuccessfulSaveAsync();
                 }
-#endif
 
                 if (successfulSaveCount > 0)
                 {
@@ -3277,8 +3287,11 @@ public sealed class MainViewModel : BindableBase, IDisposable
     }
 
 
-    // LEGACY BCS SAVE BACKUPS (disabled): custom post-save rotation.
-#if false
+    /// <summary>
+    /// Creates an additional BCS backup pair after a confirmed successful save.
+    /// Crash-time snapshots remain disabled; only successful-save events enter
+    /// this rotation.
+    /// </summary>
     private async Task CreateSaveBackupAfterSuccessfulSaveAsync(
         bool allowDuringApplicationClosing = false)
     {
@@ -3323,7 +3336,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
                 BcsToolMessageType.Error);
         }
     }
-#endif
 
 
     /// <summary>
@@ -3913,19 +3925,14 @@ public sealed class MainViewModel : BindableBase, IDisposable
             if (!stopped)
                 return false;
 
-            // LEGACY BCS SAVE BACKUPS (disabled): the native stop command now
-            // owns its final save and backup rotation. The former explicit
-            // BCS Tool snapshot call remains excluded below.
-#if false
             // _applicationClosing intentionally suppresses the ordinary
             // fire-and-forget log-triggered backup. Because native `stop`
             // saves before the process exits, take and await that final
-            // snapshot explicitly before the application is allowed to close.
+            // BCS snapshot explicitly before the application is allowed to close.
             // SaveBackupService also deduplicates against backup #1, so this
             // remains safe even if a save-completion event was already seen.
             await CreateSaveBackupAfterSuccessfulSaveAsync(
                 allowDuringApplicationClosing: true);
-#endif
 
             return true;
         }
