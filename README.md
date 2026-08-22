@@ -94,6 +94,17 @@ If either configuration file does not exist yet, start the server once so Banner
 
 BCS Tool preserves the existing JSONC structure and comments when saving supported settings, and creates a `.bak` backup before overwriting a configuration file.
 
+The Mod Configuration editor supports Bannerlord Coop v0.1.3, including:
+
+* campaign difficulty values applied by the hosting side at startup;
+* outgoing and incoming movement bandwidth limits;
+* battle size (200–1000 troops);
+* looter/bandit party-count and party-size multipliers; and
+* allied player nameplates, along with the existing gameplay and economy options.
+
+When an older mod configuration is saved, BCS Tool activates formerly commented
+difficulty entries to match Bannerlord Coop v0.1.3's configuration behavior.
+
 ## Player Access Control (Beta)
 
 > **Beta warning:** The banlist and whitelist feature has not received extensive

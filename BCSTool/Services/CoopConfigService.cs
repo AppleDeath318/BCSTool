@@ -266,6 +266,13 @@ public sealed class CoopConfigService
                 ? difficultyElement
                 : default;
 
+        var network =
+            root.TryGetProperty(
+                "network",
+                out var networkElement)
+                ? networkElement
+                : default;
+
         if (
             !root.TryGetProperty(
                 "modOptions",
@@ -278,169 +285,102 @@ public sealed class CoopConfigService
         var config =
             new CoopModConfig();
 
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "playerReceivedDamage",
-            "Realistic",
-            out var playerReceivedDamageOverride,
-            out var playerReceivedDamage);
-
-        config.PlayerReceivedDamageOverride =
-            playerReceivedDamageOverride;
-
         config.PlayerReceivedDamage =
-            playerReceivedDamage;
-
-
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "playerTroopsReceivedDamage",
-            "VeryEasy",
-            out var playerTroopsReceivedDamageOverride,
-            out var playerTroopsReceivedDamage);
-
-        config.PlayerTroopsReceivedDamageOverride =
-            playerTroopsReceivedDamageOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "playerReceivedDamage",
+                "VeryEasy");
 
         config.PlayerTroopsReceivedDamage =
-            playerTroopsReceivedDamage;
-
-
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "combatAIDifficulty",
-            "VeryEasy",
-            out var combatAIDifficultyOverride,
-            out var combatAIDifficulty);
-
-        config.CombatAIDifficultyOverride =
-            combatAIDifficultyOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "playerTroopsReceivedDamage",
+                "VeryEasy");
 
         config.CombatAIDifficulty =
-            combatAIDifficulty;
-
-
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "recruitmentDifficulty",
-            "VeryEasy",
-            out var recruitmentDifficultyOverride,
-            out var recruitmentDifficulty);
-
-        config.RecruitmentDifficultyOverride =
-            recruitmentDifficultyOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "combatAIDifficulty",
+                "VeryEasy");
 
         config.RecruitmentDifficulty =
-            recruitmentDifficulty;
-
-
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "playerMapMovementSpeed",
-            "VeryEasy",
-            out var playerMapMovementSpeedOverride,
-            out var playerMapMovementSpeed);
-
-        config.PlayerMapMovementSpeedOverride =
-            playerMapMovementSpeedOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "recruitmentDifficulty",
+                "VeryEasy");
 
         config.PlayerMapMovementSpeed =
-            playerMapMovementSpeed;
-
-
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "stealthAndDisguiseDifficulty",
-            "VeryEasy",
-            out var stealthAndDisguiseDifficultyOverride,
-            out var stealthAndDisguiseDifficulty);
-
-        config.StealthAndDisguiseDifficultyOverride =
-            stealthAndDisguiseDifficultyOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "playerMapMovementSpeed",
+                "VeryEasy");
 
         config.StealthAndDisguiseDifficulty =
-            stealthAndDisguiseDifficulty;
-
-
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "persuasionSuccessChance",
-            "VeryEasy",
-            out var persuasionSuccessChanceOverride,
-            out var persuasionSuccessChance);
-
-        config.PersuasionSuccessChanceOverride =
-            persuasionSuccessChanceOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "stealthAndDisguiseDifficulty",
+                "VeryEasy");
 
         config.PersuasionSuccessChance =
-            persuasionSuccessChance;
-
-
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "clanMemberDeathChance",
-            "VeryEasy",
-            out var clanMemberDeathChanceOverride,
-            out var clanMemberDeathChance);
-
-        config.ClanMemberDeathChanceOverride =
-            clanMemberDeathChanceOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "persuasionSuccessChance",
+                "VeryEasy");
 
         config.ClanMemberDeathChance =
-            clanMemberDeathChance;
-
-
-        LoadOptionalDifficultyString(
-            text,
-            difficulty,
-            "battleDeath",
-            "VeryEasy",
-            out var battleDeathOverride,
-            out var battleDeath);
-
-        config.BattleDeathOverride =
-            battleDeathOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "clanMemberDeathChance",
+                "VeryEasy");
 
         config.BattleDeath =
-            battleDeath;
-
-
-        LoadOptionalDifficultyBool(
-            text,
-            difficulty,
-            "birthAndDeath",
-            true,
-            out var birthAndDeathOverride,
-            out var birthAndDeath);
-
-        config.BirthAndDeathOverride =
-            birthAndDeathOverride;
+            LoadDifficultyString(
+                text,
+                difficulty,
+                "battleDeath",
+                "VeryEasy");
 
         config.BirthAndDeath =
-            birthAndDeath;
-
-
-        LoadOptionalDifficultyBool(
-            text,
-            difficulty,
-            "autoAllocateClanMemberPerks",
-            false,
-            out var autoAllocateClanMemberPerksOverride,
-            out var autoAllocateClanMemberPerks);
-
-        config.AutoAllocateClanMemberPerksOverride =
-            autoAllocateClanMemberPerksOverride;
+            LoadDifficultyBool(
+                text,
+                difficulty,
+                "birthAndDeath",
+                false);
 
         config.AutoAllocateClanMemberPerks =
-            autoAllocateClanMemberPerks;
+            LoadDifficultyBool(
+                text,
+                difficulty,
+                "autoAllocateClanMemberPerks",
+                false);
+
+
+        config.MovementOutgoingMiBPerSecond =
+            GetDouble(
+                network,
+                "movementOutgoingMiBPerSecond",
+                1.0);
+
+        config.MovementIncomingMiBPerSecond =
+            GetDouble(
+                network,
+                "movementIncomingMiBPerSecond",
+                1.0);
+
+
+        config.BattleSize =
+            GetInt(
+                modOptions,
+                "battleSize",
+                1000);
 
 
         config.FastForwardEnabled =
@@ -527,6 +467,12 @@ public sealed class CoopConfigService
                 "maximumLootersMultiplier",
                 1.0);
 
+        config.LooterPartySizeMultiplier =
+            GetDouble(
+                modOptions,
+                "looterPartySizeMultiplier",
+                1.0);
+
         config.LordDefectionRetries =
             GetString(
                 modOptions,
@@ -544,6 +490,12 @@ public sealed class CoopConfigService
                 modOptions,
                 "enablePlayerClanMemberExecutions",
                 false);
+
+        config.ShowPlayerNameplates =
+            GetBool(
+                modOptions,
+                "showPlayerNameplates",
+                true);
 
         return config;
     }
@@ -588,6 +540,20 @@ public sealed class CoopConfigService
             config.BattleDeath,
             nameof(config.BattleDeath));
 
+        ValidateMovementBandwidth(
+            config.MovementOutgoingMiBPerSecond,
+            "Outgoing movement bandwidth");
+
+        ValidateMovementBandwidth(
+            config.MovementIncomingMiBPerSecond,
+            "Incoming movement bandwidth");
+
+        if (config.BattleSize is < 200 or > 1000)
+        {
+            throw new InvalidOperationException(
+                "Battle size must be between 200 and 1000.");
+        }
+
         if (
             config.GoldFoodInfluenceChangeInBattles is not
                 ("Disabled" or "OneDayMax" or "Enabled"))
@@ -614,16 +580,31 @@ public sealed class CoopConfigService
                 "Kingdom clan tier requirement cannot be negative.");
         }
 
-        if (config.SmithingStaminaRecoveryMultiplier < 0)
+        if (
+            !double.IsFinite(
+                config.SmithingStaminaRecoveryMultiplier) ||
+            config.SmithingStaminaRecoveryMultiplier < 0)
         {
             throw new InvalidOperationException(
-                "Smithing stamina recovery multiplier cannot be negative.");
+                "Smithing stamina recovery multiplier must be a finite, non-negative number.");
         }
 
-        if (config.MaximumLootersMultiplier < 0)
+        if (
+            !double.IsFinite(
+                config.MaximumLootersMultiplier) ||
+            config.MaximumLootersMultiplier < 0)
         {
             throw new InvalidOperationException(
-                "Maximum looters multiplier cannot be negative.");
+                "Looter / bandit party count multiplier must be a finite, non-negative number.");
+        }
+
+        if (
+            !double.IsFinite(
+                config.LooterPartySizeMultiplier) ||
+            config.LooterPartySizeMultiplier < 0)
+        {
+            throw new InvalidOperationException(
+                "Looter party size multiplier must be a finite, non-negative number.");
         }
 
         if (
@@ -642,97 +623,125 @@ public sealed class CoopConfigService
             ReadRequiredFile(path);
 
 
-        // Difficulty overrides.
+        // Bannerlord Coop v0.1.3 activates and applies every difficulty value
+        // at startup. Saving through BCS Tool also upgrades formerly commented
+        // difficulty entries in older mod-config files.
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "playerReceivedDamage",
                 JsonSerializer.Serialize(
-                    config.PlayerReceivedDamage),
-                config.PlayerReceivedDamageOverride);
+                    config.PlayerReceivedDamage));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "playerTroopsReceivedDamage",
                 JsonSerializer.Serialize(
-                    config.PlayerTroopsReceivedDamage),
-                config.PlayerTroopsReceivedDamageOverride);
+                    config.PlayerTroopsReceivedDamage));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "combatAIDifficulty",
                 JsonSerializer.Serialize(
-                    config.CombatAIDifficulty),
-                config.CombatAIDifficultyOverride);
+                    config.CombatAIDifficulty));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "recruitmentDifficulty",
                 JsonSerializer.Serialize(
-                    config.RecruitmentDifficulty),
-                config.RecruitmentDifficultyOverride);
+                    config.RecruitmentDifficulty));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "playerMapMovementSpeed",
                 JsonSerializer.Serialize(
-                    config.PlayerMapMovementSpeed),
-                config.PlayerMapMovementSpeedOverride);
+                    config.PlayerMapMovementSpeed));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "stealthAndDisguiseDifficulty",
                 JsonSerializer.Serialize(
-                    config.StealthAndDisguiseDifficulty),
-                config.StealthAndDisguiseDifficultyOverride);
+                    config.StealthAndDisguiseDifficulty));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "persuasionSuccessChance",
                 JsonSerializer.Serialize(
-                    config.PersuasionSuccessChance),
-                config.PersuasionSuccessChanceOverride);
+                    config.PersuasionSuccessChance));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "clanMemberDeathChance",
                 JsonSerializer.Serialize(
-                    config.ClanMemberDeathChance),
-                config.ClanMemberDeathChanceOverride);
+                    config.ClanMemberDeathChance));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "battleDeath",
                 JsonSerializer.Serialize(
-                    config.BattleDeath),
-                config.BattleDeathOverride);
+                    config.BattleDeath));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "birthAndDeath",
                 ToJsonBool(
-                    config.BirthAndDeath),
-                config.BirthAndDeathOverride);
+                    config.BirthAndDeath));
 
         text =
-            SetOptionalCommentedKey(
+            SetObjectKey(
                 text,
+                "difficulty",
                 "autoAllocateClanMemberPerks",
                 ToJsonBool(
-                    config.AutoAllocateClanMemberPerks),
-                config.AutoAllocateClanMemberPerksOverride);
+                    config.AutoAllocateClanMemberPerks));
+
+
+        // Local movement-network limits.
+        text =
+            SetObjectKey(
+                text,
+                "network",
+                "movementOutgoingMiBPerSecond",
+                config.MovementOutgoingMiBPerSecond.ToString(
+                    CultureInfo.InvariantCulture));
+
+        text =
+            SetObjectKey(
+                text,
+                "network",
+                "movementIncomingMiBPerSecond",
+                config.MovementIncomingMiBPerSecond.ToString(
+                    CultureInfo.InvariantCulture));
 
 
         // Mod options.
+        text =
+            SetObjectKey(
+                text,
+                "modOptions",
+                "battleSize",
+                config.BattleSize.ToString(
+                    CultureInfo.InvariantCulture));
+
         text =
             SetRequiredKey(
                 text,
@@ -832,6 +841,14 @@ public sealed class CoopConfigService
                     CultureInfo.InvariantCulture));
 
         text =
+            SetObjectKey(
+                text,
+                "modOptions",
+                "looterPartySizeMultiplier",
+                config.LooterPartySizeMultiplier.ToString(
+                    CultureInfo.InvariantCulture));
+
+        text =
             SetRequiredKey(
                 text,
                 "lordDefectionRetries",
@@ -851,6 +868,14 @@ public sealed class CoopConfigService
                 "enablePlayerClanMemberExecutions",
                 ToJsonBool(
                     config.EnablePlayerClanMemberExecutions));
+
+        text =
+            SetObjectKey(
+                text,
+                "modOptions",
+                "showPlayerNameplates",
+                ToJsonBool(
+                    config.ShowPlayerNameplates));
 
 
         SaveWithBackup(
@@ -917,44 +942,129 @@ public sealed class CoopConfigService
 
 
     /// <summary>
-    /// Enables/disables one optional difficulty setting by toggling only the
-    /// JSONC // marker on that setting line. Indentation and any explanatory
-    /// inline comment after the comma are preserved.
+    /// Updates a JSONC property inside a named root object. If the property is
+    /// absent, it is inserted at the beginning of that object. If the complete
+    /// object is absent (for example, an older file without v0.1.3's network
+    /// block), the object and property are inserted after the root opening
+    /// brace. Existing comments and unrelated settings remain untouched.
     /// </summary>
-    private static string SetOptionalCommentedKey(
+    private static string SetObjectKey(
         string text,
+        string objectKey,
         string key,
-        string jsonValue,
-        bool enabled)
+        string jsonValue)
     {
         var lines =
             SplitLines(
                 text,
                 out var newline);
 
-        var index =
+        var settingIndex =
             FindSettingLineIndex(
                 lines,
                 key,
                 includeCommented: true);
 
-        if (index < 0)
+        if (settingIndex >= 0)
         {
-            throw new InvalidDataException(
-                $"Could not find optional difficulty setting '{key}' in mod-config.json.");
+            lines[settingIndex] =
+                BuildSettingLine(
+                    lines[settingIndex],
+                    key,
+                    jsonValue,
+                    commented: false);
+
+            return
+                string.Join(
+                    newline,
+                    lines);
         }
 
-        lines[index] =
-            BuildSettingLine(
-                lines[index],
-                key,
-                jsonValue,
-                commented: !enabled);
+        var objectIndex =
+            FindSettingLineIndex(
+                lines,
+                objectKey,
+                includeCommented: false);
+
+        var list =
+            new List<string>(
+                lines);
+
+        if (objectIndex >= 0)
+        {
+            var openingBraceIndex =
+                lines[objectIndex]
+                    .IndexOf('{');
+
+            if (
+                openingBraceIndex < 0 ||
+                HasContentAfterOpeningBrace(
+                    lines[objectIndex],
+                    openingBraceIndex))
+            {
+                throw new InvalidDataException(
+                    $"The '{objectKey}' object must use the normal multi-line mod-config.json layout.");
+            }
+
+            var propertyIndentation =
+                GetLeadingWhitespace(
+                    lines[objectIndex]) +
+                "  ";
+
+            list.Insert(
+                objectIndex + 1,
+                $"{propertyIndentation}\"{key}\": {jsonValue},");
+
+            return
+                string.Join(
+                    newline,
+                    list);
+        }
+
+        var rootOpeningIndex =
+            FindRootOpeningBraceIndex(
+                lines);
+
+        if (rootOpeningIndex < 0)
+        {
+            throw new InvalidDataException(
+                "mod-config.json does not contain a root opening brace.");
+        }
+
+        var objectIndentation =
+            GetLeadingWhitespace(
+                lines[rootOpeningIndex]) +
+            "  ";
+
+        list.InsertRange(
+            rootOpeningIndex + 1,
+            new[]
+            {
+                $"{objectIndentation}\"{objectKey}\": {{",
+                $"{objectIndentation}  \"{key}\": {jsonValue},",
+                $"{objectIndentation}}},"
+            });
 
         return
             string.Join(
                 newline,
-                lines);
+                list);
+    }
+
+
+    private static bool HasContentAfterOpeningBrace(
+        string line,
+        int openingBraceIndex)
+    {
+        var remainder =
+            line[(openingBraceIndex + 1)..]
+                .Trim();
+
+        return
+            remainder.Length > 0 &&
+            !remainder.StartsWith(
+                "//",
+                StringComparison.Ordinal);
     }
 
 
@@ -1191,6 +1301,29 @@ public sealed class CoopConfigService
     }
 
 
+    private static int FindRootOpeningBraceIndex(
+        string[] lines)
+    {
+        for (
+            var i = 0;
+            i < lines.Length;
+            i++)
+        {
+            if (
+                lines[i]
+                    .TrimStart()
+                    .StartsWith(
+                        "{",
+                        StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+
     private static void SaveWithBackup(
         string path,
         string text)
@@ -1208,13 +1341,15 @@ public sealed class CoopConfigService
     }
 
 
-    private static void LoadOptionalDifficultyString(
+    /// <summary>
+    /// Loads active v0.1.3 difficulty values while still recognizing values
+    /// that were commented out by older Coop configurations.
+    /// </summary>
+    private static string LoadDifficultyString(
         string rawText,
         JsonElement difficulty,
         string key,
-        string fallback,
-        out bool enabled,
-        out string value)
+        string fallback)
     {
         if (
             difficulty.ValueKind == JsonValueKind.Object &&
@@ -1223,18 +1358,12 @@ public sealed class CoopConfigService
                 out var element) &&
             element.ValueKind == JsonValueKind.String)
         {
-            enabled = true;
-
-            value =
+            return
                 element.GetString() ??
                 fallback;
-
-            return;
         }
 
-        enabled = false;
-
-        value =
+        return
             ReadCommentedStringValue(
                 rawText,
                 key) ??
@@ -1242,13 +1371,11 @@ public sealed class CoopConfigService
     }
 
 
-    private static void LoadOptionalDifficultyBool(
+    private static bool LoadDifficultyBool(
         string rawText,
         JsonElement difficulty,
         string key,
-        bool fallback,
-        out bool enabled,
-        out bool value)
+        bool fallback)
     {
         if (
             difficulty.ValueKind == JsonValueKind.Object &&
@@ -1260,14 +1387,10 @@ public sealed class CoopConfigService
                 element.ValueKind == JsonValueKind.False
             ))
         {
-            enabled = true;
-            value = element.GetBoolean();
-            return;
+            return element.GetBoolean();
         }
 
-        enabled = false;
-
-        value =
+        return
             ReadCommentedBoolValue(
                 rawText,
                 key) ??
@@ -1468,6 +1591,7 @@ public sealed class CoopConfigService
         string fallback)
     {
         return
+            element.ValueKind == JsonValueKind.Object &&
             element.TryGetProperty(
                 key,
                 out var value) &&
@@ -1483,6 +1607,7 @@ public sealed class CoopConfigService
         int fallback)
     {
         return
+            element.ValueKind == JsonValueKind.Object &&
             element.TryGetProperty(
                 key,
                 out var value) &&
@@ -1499,6 +1624,7 @@ public sealed class CoopConfigService
         double fallback)
     {
         return
+            element.ValueKind == JsonValueKind.Object &&
             element.TryGetProperty(
                 key,
                 out var value) &&
@@ -1515,6 +1641,7 @@ public sealed class CoopConfigService
         bool fallback)
     {
         if (
+            element.ValueKind != JsonValueKind.Object ||
             !element.TryGetProperty(
                 key,
                 out var value))
@@ -1547,6 +1674,21 @@ public sealed class CoopConfigService
         {
             throw new InvalidOperationException(
                 $"{propertyName} must be VeryEasy, Easy, or Realistic.");
+        }
+    }
+
+
+    private static void ValidateMovementBandwidth(
+        double value,
+        string displayName)
+    {
+        if (
+            !double.IsFinite(value) ||
+            value <= 0 ||
+            value > 1024)
+        {
+            throw new InvalidOperationException(
+                $"{displayName} must be greater than 0 and no more than 1024 MiB/s.");
         }
     }
 }

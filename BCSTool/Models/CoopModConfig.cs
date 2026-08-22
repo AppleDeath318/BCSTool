@@ -3,53 +3,51 @@
 /// <summary>
 /// Editable values from CoopData\mod-config.json.
 ///
-/// Difficulty keys are special: when an override is disabled, Coop's JSONC
-/// file keeps that key commented out so the save/host setting remains in
-/// control. The Value property is still retained so re-enabling the override
-/// restores the user's last selected value.
+/// Bannerlord Coop v0.1.3 activates every campaign-difficulty key and applies
+/// those values on the hosting side during startup. Network values are local
+/// per-process movement bandwidth limits.
 /// </summary>
 public sealed class CoopModConfig
 {
     // --------------------------------------------------------
-    // CAMPAIGN DIFFICULTY OVERRIDES
+    // CAMPAIGN DIFFICULTY
     // --------------------------------------------------------
 
-    public bool PlayerReceivedDamageOverride { get; set; }
-    public string PlayerReceivedDamage { get; set; } = "Realistic";
+    public string PlayerReceivedDamage { get; set; } = "VeryEasy";
 
-    public bool PlayerTroopsReceivedDamageOverride { get; set; }
     public string PlayerTroopsReceivedDamage { get; set; } = "VeryEasy";
 
-    public bool CombatAIDifficultyOverride { get; set; }
     public string CombatAIDifficulty { get; set; } = "VeryEasy";
 
-    public bool RecruitmentDifficultyOverride { get; set; }
     public string RecruitmentDifficulty { get; set; } = "VeryEasy";
 
-    public bool PlayerMapMovementSpeedOverride { get; set; }
     public string PlayerMapMovementSpeed { get; set; } = "VeryEasy";
 
-    public bool StealthAndDisguiseDifficultyOverride { get; set; }
     public string StealthAndDisguiseDifficulty { get; set; } = "VeryEasy";
 
-    public bool PersuasionSuccessChanceOverride { get; set; }
     public string PersuasionSuccessChance { get; set; } = "VeryEasy";
 
-    public bool ClanMemberDeathChanceOverride { get; set; }
     public string ClanMemberDeathChance { get; set; } = "VeryEasy";
 
-    public bool BattleDeathOverride { get; set; }
     public string BattleDeath { get; set; } = "VeryEasy";
 
-    public bool BirthAndDeathOverride { get; set; }
-    public bool BirthAndDeath { get; set; } = true;
+    public bool BirthAndDeath { get; set; }
 
-    public bool AutoAllocateClanMemberPerksOverride { get; set; }
     public bool AutoAllocateClanMemberPerks { get; set; }
+
+    // --------------------------------------------------------
+    // NETWORK
+    // --------------------------------------------------------
+
+    public double MovementOutgoingMiBPerSecond { get; set; } = 1.0;
+
+    public double MovementIncomingMiBPerSecond { get; set; } = 1.0;
 
     // --------------------------------------------------------
     // COOP MOD OPTIONS
     // --------------------------------------------------------
+
+    public int BattleSize { get; set; } = 1000;
 
     public bool FastForwardEnabled { get; set; } = true;
     public bool AutoPauseEnabled { get; set; } = true;
@@ -79,9 +77,13 @@ public sealed class CoopModConfig
 
     public double MaximumLootersMultiplier { get; set; } = 1.0;
 
+    public double LooterPartySizeMultiplier { get; set; } = 1.0;
+
     public string LordDefectionRetries { get; set; } = "Vanilla";
 
     public bool EnableHeroExecutions { get; set; } = true;
 
     public bool EnablePlayerClanMemberExecutions { get; set; }
+
+    public bool ShowPlayerNameplates { get; set; } = true;
 }

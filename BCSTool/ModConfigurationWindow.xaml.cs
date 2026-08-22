@@ -1,11 +1,8 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using BCSTool.Models;
 using BCSTool.Services;
@@ -22,7 +19,6 @@ public partial class ModConfigurationWindow : Window
     private CoopModConfig _config =
         new();
 
-    private bool _synchronizingOverrideAll;
     private string _savedConfigurationSnapshot = "";
     private bool _configurationLoaded;
 
@@ -51,8 +47,6 @@ public partial class ModConfigurationWindow : Window
 
             DataContext =
                 _config;
-
-            SyncOverrideAllFromChildren();
 
             _savedConfigurationSnapshot =
                 CreateConfigurationSnapshot();
@@ -189,112 +183,6 @@ public partial class ModConfigurationWindow : Window
         RoutedEventArgs e)
     {
         Close();
-    }
-
-
-    private void OverrideAll_Checked(
-        object sender,
-        RoutedEventArgs e)
-    {
-        if (_synchronizingOverrideAll)
-            return;
-
-        SetAllOverrides(
-            true);
-    }
-
-
-    private void OverrideAll_Unchecked(
-        object sender,
-        RoutedEventArgs e)
-    {
-        if (_synchronizingOverrideAll)
-            return;
-
-        SetAllOverrides(
-            false);
-    }
-
-
-    private void IndividualOverride_Click(
-        object sender,
-        RoutedEventArgs e)
-    {
-        SyncOverrideAllFromChildren();
-    }
-
-
-    private void SetAllOverrides(
-        bool enabled)
-    {
-        _synchronizingOverrideAll = true;
-
-        try
-        {
-            // Update the model explicitly so the master checkbox never has
-            // to replace or detach the individual WPF binding expressions.
-            _config.PlayerReceivedDamageOverride = enabled;
-            _config.PlayerTroopsReceivedDamageOverride = enabled;
-            _config.CombatAIDifficultyOverride = enabled;
-            _config.RecruitmentDifficultyOverride = enabled;
-            _config.PlayerMapMovementSpeedOverride = enabled;
-            _config.StealthAndDisguiseDifficultyOverride = enabled;
-            _config.PersuasionSuccessChanceOverride = enabled;
-            _config.ClanMemberDeathChanceOverride = enabled;
-            _config.BattleDeathOverride = enabled;
-            _config.BirthAndDeathOverride = enabled;
-            _config.AutoAllocateClanMemberPerksOverride = enabled;
-
-            foreach (var checkBox in GetOverrideBoxes())
-            {
-                checkBox
-                    .GetBindingExpression(
-                        ToggleButton.IsCheckedProperty)
-                    ?.UpdateTarget();
-            }
-
-            OverrideAllBox.IsChecked =
-                enabled;
-        }
-        finally
-        {
-            _synchronizingOverrideAll = false;
-        }
-    }
-
-
-    private void SyncOverrideAllFromChildren()
-    {
-        _synchronizingOverrideAll = true;
-
-        try
-        {
-            OverrideAllBox.IsChecked =
-                GetOverrideBoxes()
-                    .All(
-                        checkBox =>
-                            checkBox.IsChecked == true);
-        }
-        finally
-        {
-            _synchronizingOverrideAll = false;
-        }
-    }
-
-
-    private IEnumerable<CheckBox> GetOverrideBoxes()
-    {
-        yield return PlayerReceivedDamageOverrideBox;
-        yield return PlayerTroopsReceivedDamageOverrideBox;
-        yield return CombatAIOverrideBox;
-        yield return RecruitmentOverrideBox;
-        yield return MovementOverrideBox;
-        yield return StealthOverrideBox;
-        yield return PersuasionOverrideBox;
-        yield return ClanDeathOverrideBox;
-        yield return BattleDeathOverrideBox;
-        yield return BirthDeathOverrideBox;
-        yield return AutoPerksOverrideBox;
     }
 
 
