@@ -116,6 +116,12 @@ public sealed class CoopConfigService
                         "password",
                         ""),
 
+                Port =
+                    GetInt(
+                        root,
+                        "port",
+                        4200),
+
                 LogFile =
                     GetBool(
                         root,
@@ -176,6 +182,12 @@ public sealed class CoopConfigService
                 "Server password cannot exceed 128 characters.");
         }
 
+        if (config.Port is < 1 or > 65535)
+        {
+            throw new InvalidOperationException(
+                "Server port must be between 1 and 65535.");
+        }
+
         var path =
             ServerConfigPath;
 
@@ -202,6 +214,15 @@ public sealed class CoopConfigService
                 "password",
                 JsonSerializer.Serialize(
                     config.Password));
+
+        // v0.1.6 added the server port. Insert it when saving an older
+        // server-config.json so users do not need to recreate their file.
+        text =
+            SetRootKey(
+                text,
+                "port",
+                config.Port.ToString(
+                    CultureInfo.InvariantCulture));
 
         text =
             SetRequiredKey(
@@ -266,11 +287,11 @@ public sealed class CoopConfigService
                 ? difficultyElement
                 : default;
 
-        var network =
+        var voice =
             root.TryGetProperty(
-                "network",
-                out var networkElement)
-                ? networkElement
+                "voice",
+                out var voiceElement)
+                ? voiceElement
                 : default;
 
         if (
@@ -353,7 +374,7 @@ public sealed class CoopConfigService
                 text,
                 difficulty,
                 "birthAndDeath",
-                false);
+                true);
 
         config.AutoAllocateClanMemberPerks =
             LoadDifficultyBool(
@@ -363,17 +384,36 @@ public sealed class CoopConfigService
                 false);
 
 
-        config.MovementOutgoingMiBPerSecond =
+        config.MapFullVolumeDistance =
             GetDouble(
-                network,
-                "movementOutgoingMiBPerSecond",
-                1.0);
+                voice,
+                "mapFullVolumeDistance",
+                5);
 
-        config.MovementIncomingMiBPerSecond =
+        config.MapMaximumDistance =
             GetDouble(
-                network,
-                "movementIncomingMiBPerSecond",
-                1.0);
+                voice,
+                "mapMaximumDistance",
+                20);
+
+        config.SceneFullVolumeDistance =
+            GetDouble(
+                voice,
+                "sceneFullVolumeDistance",
+                10);
+
+        config.SceneMaximumDistance =
+            GetDouble(
+                voice,
+                "sceneMaximumDistance",
+                50);
+
+
+        config.VoiceEnabled =
+            GetBool(
+                modOptions,
+                "voiceEnabled",
+                true);
 
 
         config.BattleSize =
@@ -405,13 +445,13 @@ public sealed class CoopConfigService
             GetBool(
                 modOptions,
                 "goldFoodInfluenceChangeInSettlements",
-                true);
+                false);
 
         config.GoldFoodInfluenceChangeInBattles =
             GetString(
                 modOptions,
                 "goldFoodInfluenceChangeInBattles",
-                "OneDayMax");
+                "Disabled");
 
         config.GoldFoodInfluenceChangeForDisconnectedPlayers =
             GetBool(
@@ -419,16 +459,28 @@ public sealed class CoopConfigService
                 "goldFoodInfluenceChangeForDisconnectedPlayers",
                 false);
 
+        config.BlockAiWarDeclarationsOnOfflinePlayers =
+            GetBool(
+                modOptions,
+                "blockAiWarDeclarationsOnOfflinePlayers",
+                false);
+
         config.PlayerBattleAiJoinWindowHours =
             GetInt(
                 modOptions,
                 "playerBattleAiJoinWindowHours",
-                24);
+                6);
 
         config.SpeedLimitWhilePlayersInBattle =
             GetBool(
                 modOptions,
                 "speedLimitWhilePlayersInBattle",
+                true);
+
+        config.EnsureUnaffiliatedWanderers =
+            GetBool(
+                modOptions,
+                "ensureUnaffiliatedWanderers",
                 true);
 
         config.WandererLimit =
@@ -448,6 +500,12 @@ public sealed class CoopConfigService
                 modOptions,
                 "playerKingdomClanTierRequired",
                 4);
+
+        config.CoopClansEnabled =
+            GetBool(
+                modOptions,
+                "coopClansEnabled",
+                true);
 
         config.SmithingStaminaRecoveryOutsideSettlements =
             GetBool(
@@ -483,7 +541,7 @@ public sealed class CoopConfigService
             GetBool(
                 modOptions,
                 "enableHeroExecutions",
-                true);
+                false);
 
         config.EnablePlayerClanMemberExecutions =
             GetBool(
@@ -491,10 +549,22 @@ public sealed class CoopConfigService
                 "enablePlayerClanMemberExecutions",
                 false);
 
+        config.EnablePlayerExecutions =
+            GetBool(
+                modOptions,
+                "enablePlayerExecutions",
+                false);
+
         config.ShowPlayerNameplates =
             GetBool(
                 modOptions,
                 "showPlayerNameplates",
+                true);
+
+        config.PlayerWoundedBattleEntry =
+            GetBool(
+                modOptions,
+                "playerWoundedBattleEntry",
                 true);
 
         return config;
@@ -540,13 +610,8 @@ public sealed class CoopConfigService
             config.BattleDeath,
             nameof(config.BattleDeath));
 
-        ValidateMovementBandwidth(
-            config.MovementOutgoingMiBPerSecond,
-            "Outgoing movement bandwidth");
-
-        ValidateMovementBandwidth(
-            config.MovementIncomingMiBPerSecond,
-            "Incoming movement bandwidth");
+        ValidateVoiceRanges(
+            config);
 
         if (config.BattleSize is < 200 or > 1000)
         {
@@ -623,7 +688,7 @@ public sealed class CoopConfigService
             ReadRequiredFile(path);
 
 
-        // Bannerlord Coop v0.1.3 activates and applies every difficulty value
+        // Bannerlord Coop activates and applies every difficulty value
         // at startup. Saving through BCS Tool also upgrades formerly commented
         // difficulty entries in older mod-config files.
         text =
@@ -715,25 +780,49 @@ public sealed class CoopConfigService
                     config.AutoAllocateClanMemberPerks));
 
 
-        // Local movement-network limits.
+        // Proximity voice ranges.
         text =
             SetObjectKey(
                 text,
-                "network",
-                "movementOutgoingMiBPerSecond",
-                config.MovementOutgoingMiBPerSecond.ToString(
+                "voice",
+                "mapFullVolumeDistance",
+                config.MapFullVolumeDistance.ToString(
                     CultureInfo.InvariantCulture));
 
         text =
             SetObjectKey(
                 text,
-                "network",
-                "movementIncomingMiBPerSecond",
-                config.MovementIncomingMiBPerSecond.ToString(
+                "voice",
+                "mapMaximumDistance",
+                config.MapMaximumDistance.ToString(
+                    CultureInfo.InvariantCulture));
+
+        text =
+            SetObjectKey(
+                text,
+                "voice",
+                "sceneFullVolumeDistance",
+                config.SceneFullVolumeDistance.ToString(
+                    CultureInfo.InvariantCulture));
+
+        text =
+            SetObjectKey(
+                text,
+                "voice",
+                "sceneMaximumDistance",
+                config.SceneMaximumDistance.ToString(
                     CultureInfo.InvariantCulture));
 
 
         // Mod options.
+        text =
+            SetObjectKey(
+                text,
+                "modOptions",
+                "voiceEnabled",
+                ToJsonBool(
+                    config.VoiceEnabled));
+
         text =
             SetObjectKey(
                 text,
@@ -743,99 +832,137 @@ public sealed class CoopConfigService
                     CultureInfo.InvariantCulture));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "fastForwardEnabled",
                 ToJsonBool(
                     config.FastForwardEnabled));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "autoPauseEnabled",
                 ToJsonBool(
                     config.AutoPauseEnabled));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "clientsCanUseCheats",
                 ToJsonBool(
                     config.ClientsCanUseCheats));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "goldFoodInfluenceChangeInSettlements",
                 ToJsonBool(
                     config.GoldFoodInfluenceChangeInSettlements));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "goldFoodInfluenceChangeInBattles",
                 JsonSerializer.Serialize(
                     config.GoldFoodInfluenceChangeInBattles));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "goldFoodInfluenceChangeForDisconnectedPlayers",
                 ToJsonBool(
                     config.GoldFoodInfluenceChangeForDisconnectedPlayers));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
+                "blockAiWarDeclarationsOnOfflinePlayers",
+                ToJsonBool(
+                    config.BlockAiWarDeclarationsOnOfflinePlayers));
+
+        text =
+            SetObjectKey(
+                text,
+                "modOptions",
                 "playerBattleAiJoinWindowHours",
                 config.PlayerBattleAiJoinWindowHours.ToString(
                     CultureInfo.InvariantCulture));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "speedLimitWhilePlayersInBattle",
                 ToJsonBool(
                     config.SpeedLimitWhilePlayersInBattle));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
+                "ensureUnaffiliatedWanderers",
+                ToJsonBool(
+                    config.EnsureUnaffiliatedWanderers));
+
+        text =
+            SetObjectKey(
+                text,
+                "modOptions",
                 "wandererLimit",
                 config.WandererLimit.ToString(
                     CultureInfo.InvariantCulture));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "wandererLimitScalesWithPlayers",
                 ToJsonBool(
                     config.WandererLimitScalesWithPlayers));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "playerKingdomClanTierRequired",
                 config.PlayerKingdomClanTierRequired.ToString(
                     CultureInfo.InvariantCulture));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
+                "coopClansEnabled",
+                ToJsonBool(
+                    config.CoopClansEnabled));
+
+        text =
+            SetObjectKey(
+                text,
+                "modOptions",
                 "smithingStaminaRecoveryOutsideSettlements",
                 ToJsonBool(
                     config.SmithingStaminaRecoveryOutsideSettlements));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "smithingStaminaRecoveryMultiplier",
                 config.SmithingStaminaRecoveryMultiplier.ToString(
                     CultureInfo.InvariantCulture));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "maximumLootersMultiplier",
                 config.MaximumLootersMultiplier.ToString(
                     CultureInfo.InvariantCulture));
@@ -849,22 +976,25 @@ public sealed class CoopConfigService
                     CultureInfo.InvariantCulture));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "lordDefectionRetries",
                 JsonSerializer.Serialize(
                     config.LordDefectionRetries));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "enableHeroExecutions",
                 ToJsonBool(
                     config.EnableHeroExecutions));
 
         text =
-            SetRequiredKey(
+            SetObjectKey(
                 text,
+                "modOptions",
                 "enablePlayerClanMemberExecutions",
                 ToJsonBool(
                     config.EnablePlayerClanMemberExecutions));
@@ -873,9 +1003,25 @@ public sealed class CoopConfigService
             SetObjectKey(
                 text,
                 "modOptions",
+                "enablePlayerExecutions",
+                ToJsonBool(
+                    config.EnablePlayerExecutions));
+
+        text =
+            SetObjectKey(
+                text,
+                "modOptions",
                 "showPlayerNameplates",
                 ToJsonBool(
                     config.ShowPlayerNameplates));
+
+        text =
+            SetObjectKey(
+                text,
+                "modOptions",
+                "playerWoundedBattleEntry",
+                ToJsonBool(
+                    config.PlayerWoundedBattleEntry));
 
 
         SaveWithBackup(
@@ -942,9 +1088,74 @@ public sealed class CoopConfigService
 
 
     /// <summary>
+    /// Updates a root JSONC property, inserting it before the root closing
+    /// brace when an older configuration does not contain the property yet.
+    /// </summary>
+    private static string SetRootKey(
+        string text,
+        string key,
+        string jsonValue)
+    {
+        var lines =
+            SplitLines(
+                text,
+                out var newline);
+
+        var index =
+            FindSettingLineIndex(
+                lines,
+                key,
+                includeCommented: false);
+
+        if (index >= 0)
+        {
+            lines[index] =
+                BuildSettingLine(
+                    lines[index],
+                    key,
+                    jsonValue,
+                    commented: false);
+
+            return
+                string.Join(
+                    newline,
+                    lines);
+        }
+
+        var closingIndex =
+            FindRootClosingBraceIndex(
+                lines);
+
+        if (closingIndex < 0)
+        {
+            throw new InvalidDataException(
+                "server-config.json does not contain a root closing brace.");
+        }
+
+        var indentation =
+            GetLeadingWhitespace(
+                lines[closingIndex]) +
+            "  ";
+
+        var list =
+            new List<string>(
+                lines);
+
+        list.Insert(
+            closingIndex,
+            $"{indentation}\"{key}\": {jsonValue},");
+
+        return
+            string.Join(
+                newline,
+                list);
+    }
+
+
+    /// <summary>
     /// Updates a JSONC property inside a named root object. If the property is
     /// absent, it is inserted at the beginning of that object. If the complete
-    /// object is absent (for example, an older file without v0.1.3's network
+    /// object is absent (for example, an older file without v0.1.6's voice
     /// block), the object and property are inserted after the root opening
     /// brace. Existing comments and unrelated settings remain untouched.
     /// </summary>
@@ -1342,7 +1553,7 @@ public sealed class CoopConfigService
 
 
     /// <summary>
-    /// Loads active v0.1.3 difficulty values while still recognizing values
+    /// Loads active difficulty values while still recognizing values
     /// that were commented out by older Coop configurations.
     /// </summary>
     private static string LoadDifficultyString(
@@ -1678,17 +1889,34 @@ public sealed class CoopConfigService
     }
 
 
-    private static void ValidateMovementBandwidth(
-        double value,
+    private static void ValidateVoiceRanges(
+        CoopModConfig config)
+    {
+        ValidateVoiceRangePair(
+            config.MapFullVolumeDistance,
+            config.MapMaximumDistance,
+            "Campaign-map");
+
+        ValidateVoiceRangePair(
+            config.SceneFullVolumeDistance,
+            config.SceneMaximumDistance,
+            "Scene");
+    }
+
+
+    private static void ValidateVoiceRangePair(
+        double fullVolumeDistance,
+        double maximumDistance,
         string displayName)
     {
         if (
-            !double.IsFinite(value) ||
-            value <= 0 ||
-            value > 1024)
+            !double.IsFinite(fullVolumeDistance) ||
+            !double.IsFinite(maximumDistance) ||
+            fullVolumeDistance < 0 ||
+            maximumDistance <= fullVolumeDistance)
         {
             throw new InvalidOperationException(
-                $"{displayName} must be greater than 0 and no more than 1024 MiB/s.");
+                $"{displayName} voice distances must be finite, the full-volume distance must be non-negative, and the maximum distance must be greater than the full-volume distance.");
         }
     }
 }

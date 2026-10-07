@@ -32,13 +32,9 @@ public sealed class ServerSettings
     public int CrashRecoverySettleSeconds { get; set; } = 10;
     public int PortReleaseTimeoutSeconds { get; set; } = 30;
 
-    // Optional network-port safety guard.
-    //
-    // 0 = disabled (recommended unless you know the server's actual,
-    // exclusive listening port).
-    //
-    // Do NOT guess this value from unrelated console forwarding messages.
-    public int ServerPort { get; set; } = 0;
+    // Last known server-config.json port, used by lifecycle safety checks.
+    // The configuration file is refreshed immediately before each launch.
+    public int ServerPort { get; set; } = 4200;
 
     // Optional additional paired-save history under Game Saves\BCS Backups.
     // Disabled by default; Bannerlord Coop's native backups remain untouched.
@@ -92,8 +88,8 @@ public sealed class ServerSettings
         if (WarningMinutesBefore is < 0 or > 10)
             errors.Add("Restart warning lead time must be between 0 and 10 minutes.");
 
-        if (ServerPort is < 0 or > 65535)
-            errors.Add("Server port must be 0 (disabled) or between 1 and 65535.");
+        if (ServerPort is < 1 or > 65535)
+            errors.Add("Server port must be between 1 and 65535.");
 
         if (SaveBackupCount is < 1 or > 5)
             errors.Add("Save backup count must be between 1 and 5.");

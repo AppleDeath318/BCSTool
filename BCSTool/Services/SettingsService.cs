@@ -191,11 +191,19 @@ public sealed class SettingsService
                 nameof(ServerSettings.PortReleaseTimeoutSeconds),
                 settings.PortReleaseTimeoutSeconds);
 
-        settings.ServerPort =
+        var storedServerPort =
             ReadInt(
                 key,
                 nameof(ServerSettings.ServerPort),
                 settings.ServerPort);
+
+        // Older releases used 0 as an opt-out sentinel. Bannerlord Coop
+        // v0.1.6 makes the server-config.json port authoritative, so migrate
+        // missing/invalid legacy values to its default UDP port.
+        settings.ServerPort =
+            storedServerPort is >= 1 and <= 65535
+                ? storedServerPort
+                : 4200;
 
         settings.SaveBackupsEnabled =
             ReadBool(

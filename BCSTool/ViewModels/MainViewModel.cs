@@ -60,6 +60,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
     private readonly NativeSaveBackupService _nativeSaveBackupService;
     private readonly SaveBackupService _saveBackupService;
     private readonly PlayerAccessService _playerAccessService;
+    private readonly CoopConfigService _coopConfigService;
 
     // Current-session identity evidence. Enforcement never trusts character
     // names alone: a player is actionable only after the active save confirms
@@ -758,7 +759,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         ServerExecutableLocator serverExecutableLocator,
         NativeSaveBackupService nativeSaveBackupService,
         SaveBackupService saveBackupService,
-        PlayerAccessService playerAccessService)
+        PlayerAccessService playerAccessService,
+        CoopConfigService coopConfigService)
     {
         _settingsService = settingsService;
         _logService = logService;
@@ -771,6 +773,7 @@ public sealed class MainViewModel : BindableBase, IDisposable
         _nativeSaveBackupService = nativeSaveBackupService;
         _saveBackupService = saveBackupService;
         _playerAccessService = playerAccessService;
+        _coopConfigService = coopConfigService;
 
         _dispatcher = Application.Current.Dispatcher;
 
@@ -1076,10 +1079,9 @@ public sealed class MainViewModel : BindableBase, IDisposable
             ServerPidText = "-";
             UptimeText = "-";
 
-            // If an actual exclusive server port is configured, wait for it
-            // to become free before starting the next instance.
-            //
-            // ServerPort = 0 disables this optional guard.
+            // Wait for the server-config.json port to become free before
+            // starting the next instance. This value remains the port used by
+            // the running process even if the file is edited mid-session.
             if (Settings.ServerPort > 0)
             {
                 var portFree = await _portMonitor.WaitForPortFreeAsync(
@@ -1144,6 +1146,8 @@ public sealed class MainViewModel : BindableBase, IDisposable
         if (_applicationClosing)
             return;
 
+        RefreshServerPortFromConfig();
+
         var validation = Settings.Validate();
 
         if (validation.Count > 0)
@@ -1185,7 +1189,6 @@ public sealed class MainViewModel : BindableBase, IDisposable
         }
 
         if (
-            Settings.ServerPort > 0 &&
             _portMonitor.IsPortInUse(Settings.ServerPort))
         {
             ServerState = ServerState.PortBlocked;
@@ -1249,6 +1252,31 @@ public sealed class MainViewModel : BindableBase, IDisposable
         {
             AddToolMessage(
                 "Scheduled automation remains disabled until readiness is detected.",
+                BcsToolMessageType.Warning);
+        }
+    }
+
+
+    /// <summary>
+    /// Keeps the lifecycle port guard aligned with Bannerlord Coop's
+    /// authoritative server-config.json value. If the file cannot be read,
+    /// startup retains the last known value and reports the problem.
+    /// </summary>
+    private void RefreshServerPortFromConfig()
+    {
+        if (!File.Exists(_coopConfigService.ServerConfigPath))
+            return;
+
+        try
+        {
+            Settings.ServerPort =
+                _coopConfigService.LoadServerConfig().Port;
+        }
+        catch (Exception ex)
+        {
+            AddToolMessage(
+                $"Could not read the server port from server-config.json; " +
+                $"using last known port {Settings.ServerPort}. {ex.Message}",
                 BcsToolMessageType.Warning);
         }
     }

@@ -114,7 +114,8 @@ public partial class App : Application
             serverExecutableLocator,
             nativeSaveBackupService,
             saveBackupService,
-            playerAccessService);
+            playerAccessService,
+            coopConfigService);
 
         var window = new MainWindow(
             _viewModel,

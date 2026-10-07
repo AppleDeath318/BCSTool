@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,7 +12,8 @@ namespace BCSTool.Services;
 ///
 /// Server output/state is sourced from the dedicated-server .log by
 /// ServerLogMonitor. This class launches the server with redirected standard
-/// input and drains stdout/stderr only to prevent pipe back-pressure.
+/// input and drains stdout/stderr to prevent pipe back-pressure. Startup output
+/// is also inspected for Bannerlord Coop's first-run EULA prompt.
 ///
 /// The existing Windows Job Object is retained for orphan-process cleanup and
 /// Process.Exited remains an independent crash fallback.
@@ -27,6 +29,9 @@ public sealed class ServerProcessManager : IDisposable
     private CancellationTokenSource? _outputDrainCts;
 
     private volatile bool _expectedExit;
+    private int _eulaResponseSent;
+
+    private const int StartupOutputBufferLimit = 8192;
 
     public event EventHandler? UnexpectedExit;
 
@@ -83,7 +88,8 @@ public sealed class ServerProcessManager : IDisposable
     /// stdout/stderr are also redirected and continuously drained because the
     /// visible Server Console is sourced from the dedicated-server .log. This
     /// prevents a full output pipe from blocking the server while keeping the
-    /// process window hidden.
+    /// process window hidden, and allows a guarded response to the first-run
+    /// EULA prompt introduced by Bannerlord Coop v0.1.6.
     ///
     /// A true result means only that the Windows process was created. Runtime
     /// readiness remains authoritative from ServerLogMonitor/MainViewModel.
@@ -103,6 +109,9 @@ public sealed class ServerProcessManager : IDisposable
 
         CleanupPreviousSession();
         _expectedExit = false;
+        Interlocked.Exchange(
+            ref _eulaResponseSent,
+            0);
 
         try
         {
@@ -156,11 +165,13 @@ public sealed class ServerProcessManager : IDisposable
             _outputDrainCts = new CancellationTokenSource();
 
             _ = DrainOutputAsync(
+                _process,
                 _process.StandardOutput,
                 "stdout",
                 _outputDrainCts.Token);
 
             _ = DrainOutputAsync(
+                _process,
                 _process.StandardError,
                 "stderr",
                 _outputDrainCts.Token);
@@ -191,9 +202,23 @@ public sealed class ServerProcessManager : IDisposable
         string command,
         CancellationToken cancellationToken = default)
     {
+        return
+            await SendInputLineAsync(
+                _process,
+                command,
+                logAsCommand: true,
+                cancellationToken: cancellationToken);
+    }
+
+    private async Task<bool> SendInputLineAsync(
+        Process? process,
+        string input,
+        bool logAsCommand,
+        CancellationToken cancellationToken)
+    {
         if (
-            !IsRunning ||
-            _process is null)
+            process is null ||
+            process.HasExited)
         {
             return false;
         }
@@ -203,22 +228,27 @@ public sealed class ServerProcessManager : IDisposable
 
         try
         {
-            await _process.StandardInput.WriteLineAsync(
-                command.AsMemory(),
+            await process.StandardInput.WriteLineAsync(
+                input.AsMemory(),
                 cancellationToken);
 
-            await _process.StandardInput.FlushAsync(
+            await process.StandardInput.FlushAsync(
                 cancellationToken);
 
-            _logService.Write(
-                $"Command sent: {command}");
+            if (logAsCommand)
+            {
+                _logService.Write(
+                    $"Command sent: {input}");
+            }
 
             return true;
         }
         catch (Exception ex)
         {
             _logService.Write(
-                $"Could not send command '{command}': {ex.Message}");
+                logAsCommand
+                    ? $"Could not send command '{input}': {ex.Message}"
+                    : $"Could not answer the Bannerlord Coop EULA prompt: {ex.Message}");
 
             return false;
         }
@@ -320,11 +350,13 @@ public sealed class ServerProcessManager : IDisposable
     }
 
     private async Task DrainOutputAsync(
+        Process process,
         StreamReader reader,
         string streamName,
         CancellationToken cancellationToken)
     {
         var buffer = new char[4096];
+        var startupOutput = new StringBuilder();
 
         try
         {
@@ -337,6 +369,28 @@ public sealed class ServerProcessManager : IDisposable
 
                 if (count <= 0)
                     return;
+
+                if (
+                    Volatile.Read(
+                        ref _eulaResponseSent) == 0)
+                {
+                    startupOutput.Append(
+                        buffer,
+                        0,
+                        count);
+
+                    if (startupOutput.Length > StartupOutputBufferLimit)
+                    {
+                        startupOutput.Remove(
+                            0,
+                            startupOutput.Length - StartupOutputBufferLimit);
+                    }
+
+                    await TryAcceptEulaAsync(
+                        process,
+                        startupOutput.ToString(),
+                        cancellationToken);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -353,6 +407,102 @@ public sealed class ServerProcessManager : IDisposable
                     $"Redirected {streamName} drain stopped unexpectedly: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// Bannerlord Coop v0.1.6 can pause its hidden launcher on a first-run EULA
+    /// question. Answer only when redirected startup output contains both the
+    /// agreement and an explicit yes/no request; ordinary server prompts must
+    /// never receive an unsolicited "y" command.
+    /// </summary>
+    private async Task TryAcceptEulaAsync(
+        Process process,
+        string startupOutput,
+        CancellationToken cancellationToken)
+    {
+        if (!LooksLikeEulaPrompt(startupOutput))
+            return;
+
+        if (
+            Interlocked.CompareExchange(
+                ref _eulaResponseSent,
+                1,
+                0) != 0)
+        {
+            return;
+        }
+
+        if (await SendInputLineAsync(
+                process,
+                "y",
+                logAsCommand: false,
+                cancellationToken: cancellationToken))
+        {
+            _logService.Write(
+                "Bannerlord Coop EULA prompt detected and accepted.");
+            return;
+        }
+
+        Interlocked.Exchange(
+            ref _eulaResponseSent,
+            0);
+    }
+
+    private static bool LooksLikeEulaPrompt(
+        string output)
+    {
+        var normalized =
+            output.ToLowerInvariant();
+
+        var mentionsAgreement =
+            normalized.Contains(
+                "eula",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "end user license agreement",
+                StringComparison.Ordinal);
+
+        var asksForAcceptance =
+            normalized.Contains(
+                "accept",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "agree",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "continue",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "consent",
+                StringComparison.Ordinal);
+
+        var requestsYesOrNo =
+            normalized.Contains(
+                "y/n",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "yes/no",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "yes or no",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "type y",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "enter y",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "press y",
+                StringComparison.Ordinal) ||
+            normalized.Contains(
+                "[y]",
+                StringComparison.Ordinal);
+
+        return
+            mentionsAgreement &&
+            asksForAcceptance &&
+            requestsYesOrNo;
     }
 
     /// <summary>

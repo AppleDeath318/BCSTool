@@ -222,15 +222,31 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0"
+                                   Grid.Column="0"
+                                   Text="Server port:"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+
+                        <TextBox Grid.Row="0"
+                                 Grid.Column="1"
+                                 Width="120"
+                                 HorizontalAlignment="Left"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,8"
+                                 ToolTip="UDP port used by the server. Must be between 1 and 65535; default is 4200."/>
+
+                        <TextBlock Grid.Row="1"
                                    Grid.Column="0"
                                    Text="Server password:"
                                    VerticalAlignment="Center"
                                    Margin="0,0,10,8"/>
 
-                        <Grid Grid.Row="0"
+                        <Grid Grid.Row="1"
                               Grid.Column="1"
                               Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
@@ -259,13 +275,13 @@
                                       Unchecked="ShowPasswordCheckBox_Changed"/>
                         </Grid>
 
-                        <TextBlock Grid.Row="1"
+                        <TextBlock Grid.Row="2"
                                    Grid.Column="0"
                                    Text="Steam Lobby"
                                    VerticalAlignment="Center"
                                    Margin="0,0,10,0"/>
 
-                        <ComboBox Grid.Row="1"
+                        <ComboBox Grid.Row="2"
                                   Grid.Column="1"
                                   ItemsSource="{StaticResource EnabledDisabledOptions}"
                                   SelectedItem="{Binding Steam, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"

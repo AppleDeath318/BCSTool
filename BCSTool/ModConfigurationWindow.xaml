@@ -140,7 +140,7 @@
 
                         <TextBlock Grid.Row="0"
                                    Grid.ColumnSpan="3"
-                                   Text="Bannerlord Coop v0.1.3 applies these values on the hosting side at every boot."
+                                   Text="Bannerlord Coop v0.1.6 applies these values on the hosting side at every boot."
                                    Foreground="{DynamicResource MutedForegroundBrush}"
                                    TextWrapping="Wrap"
                                    Margin="0,0,0,10"/>
@@ -235,8 +235,8 @@
                                   SelectedItem="{Binding BirthAndDeath, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
                                   Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="10" Grid.Column="2"
-                                   Text="Not currently supported; keep Disabled"
-                                   Foreground="{DynamicResource WarningForegroundBrush}"
+                                   Text="Controls aging, births, and natural deaths"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
                                    TextWrapping="Wrap"
                                    VerticalAlignment="Center"
                                    Margin="10,0,0,8"/>
@@ -250,7 +250,7 @@
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="Network"
+                <GroupBox Header="Proximity Voice"
                           Margin="0,0,0,10">
                     <Grid Margin="10">
                         <Grid.ColumnDefinitions>
@@ -261,29 +261,78 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0"
-                                   Text="Movement outgoing limit (MiB/s)"
+                                   Text="Voice chat"
                                    VerticalAlignment="Center"
                                    Margin="0,0,10,8"/>
-                        <TextBox Grid.Row="0" Grid.Column="1"
-                                 Text="{Binding MovementOutgoingMiBPerSecond, UpdateSourceTrigger=PropertyChanged}"
-                                 Margin="0,0,0,8"/>
+                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                  ItemsSource="{StaticResource EnabledDisabledOptions}"
+                                  SelectedItem="{Binding VoiceEnabled, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
+                                  Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="0" Grid.Column="2"
-                                   Text="Greater than 0; maximum 1024"
+                                   Text="Enables proximity voice for all players"
                                    Foreground="{DynamicResource MutedForegroundBrush}"
                                    VerticalAlignment="Center"
                                    Margin="10,0,0,8"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0"
-                                   Text="Movement incoming limit (MiB/s)"
-                                   VerticalAlignment="Center"/>
+                                   Text="Map full-volume distance"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
                         <TextBox Grid.Row="1" Grid.Column="1"
-                                 Text="{Binding MovementIncomingMiBPerSecond, UpdateSourceTrigger=PropertyChanged}"/>
+                                 Text="{Binding MapFullVolumeDistance, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding VoiceEnabled}"
+                                 Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="1" Grid.Column="2"
-                                   Text="Local per-client movement payload limit"
+                                   Text="Default: 5"
                                    Foreground="{DynamicResource MutedForegroundBrush}"
+                                   VerticalAlignment="Center"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                   Text="Map maximum distance"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+                        <TextBox Grid.Row="2" Grid.Column="1"
+                                 Text="{Binding MapMaximumDistance, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding VoiceEnabled}"
+                                 Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2"
+                                   Text="Must be greater than the map full-volume distance; default: 20"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0"
+                                   Text="Scene full-volume distance"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+                        <TextBox Grid.Row="3" Grid.Column="1"
+                                 Text="{Binding SceneFullVolumeDistance, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding VoiceEnabled}"
+                                 Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="3" Grid.Column="2"
+                                   Text="Default: 10"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
+                                   VerticalAlignment="Center"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0"
+                                   Text="Scene maximum distance"
+                                   VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="4" Grid.Column="1"
+                                 Text="{Binding SceneMaximumDistance, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding VoiceEnabled}"/>
+                        <TextBlock Grid.Row="4" Grid.Column="2"
+                                   Text="Must be greater than the scene full-volume distance; default: 50"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
+                                   TextWrapping="Wrap"
                                    VerticalAlignment="Center"
                                    Margin="10,0,0,0"/>
                     </Grid>
@@ -298,6 +347,7 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -357,16 +407,25 @@
 
                         <TextBlock Grid.Row="5" Grid.Column="0"
                                    Text="Player nameplates"
-                                   VerticalAlignment="Center"/>
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
                         <ComboBox Grid.Row="5" Grid.Column="1"
                                   ItemsSource="{StaticResource EnabledDisabledOptions}"
-                                  SelectedItem="{Binding ShowPlayerNameplates, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"/>
+                                  SelectedItem="{Binding ShowPlayerNameplates, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
+                                  Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="5" Grid.Column="2"
                                    Text="Controls whether clients may show allied player nameplates"
                                    Foreground="{DynamicResource MutedForegroundBrush}"
                                    TextWrapping="Wrap"
                                    VerticalAlignment="Center"
-                                   Margin="10,0,0,0"/>
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0"
+                                   Text="Allow wounded players to join battles"
+                                   VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="6" Grid.Column="1"
+                                  ItemsSource="{StaticResource EnabledDisabledOptions}"
+                                  SelectedItem="{Binding PlayerWoundedBattleEntry, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"/>
                     </Grid>
                 </GroupBox>
 
@@ -419,6 +478,10 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -539,7 +602,7 @@
                                    Margin="10,0,0,8"/>
 
                         <TextBlock Grid.Row="9" Grid.Column="0"
-                                   Text="Allow AI hero executions"
+                                   Text="Allow hero executions"
                                    VerticalAlignment="Center"
                                    Margin="0,0,10,8"/>
                         <ComboBox Grid.Row="9" Grid.Column="1"
@@ -547,7 +610,7 @@
                                   SelectedItem="{Binding EnableHeroExecutions, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
                                   Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="9" Grid.Column="2"
-                                   Text="Controls whether players can execute AI clan members"
+                                   Text="Master switch for hero executions"
                                    Foreground="{DynamicResource MutedForegroundBrush}"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap"
@@ -555,14 +618,69 @@
 
                         <TextBlock Grid.Row="10" Grid.Column="0"
                                    Text="Allow player clan member executions"
-                                   VerticalAlignment="Center"/>
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
                         <ComboBox Grid.Row="10" Grid.Column="1"
                                   ItemsSource="{StaticResource EnabledDisabledOptions}"
                                   SelectedItem="{Binding EnablePlayerClanMemberExecutions, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
-                                  IsEnabled="{Binding EnableHeroExecutions}"/>
+                                  IsEnabled="{Binding EnableHeroExecutions}"
+                                  Margin="0,0,0,8"/>
                         <TextBlock Grid.Row="10" Grid.Column="2"
                                    Text="Includes player companions and family; requires hero executions"
                                    Foreground="{DynamicResource MutedForegroundBrush}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="11" Grid.Column="0"
+                                   Text="Block AI wars against offline players"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+                        <ComboBox Grid.Row="11" Grid.Column="1"
+                                  ItemsSource="{StaticResource EnabledDisabledOptions}"
+                                  SelectedItem="{Binding BlockAiWarDeclarationsOnOfflinePlayers, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
+                                  Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="11" Grid.Column="2"
+                                   Text="Refuses new AI war proposals and alliance calls while every affected player is offline"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="12" Grid.Column="0"
+                                   Text="Maintain unaffiliated wanderers"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+                        <ComboBox Grid.Row="12" Grid.Column="1"
+                                  ItemsSource="{StaticResource EnabledDisabledOptions}"
+                                  SelectedItem="{Binding EnsureUnaffiliatedWanderers, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
+                                  Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="12" Grid.Column="2"
+                                   Text="When enabled, the wanderer limit targets recruitable unaffiliated wanderers"
+                                   Foreground="{DynamicResource MutedForegroundBrush}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Margin="10,0,0,8"/>
+
+                        <TextBlock Grid.Row="13" Grid.Column="0"
+                                   Text="Co-op clans and player marriages"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,8"/>
+                        <ComboBox Grid.Row="13" Grid.Column="1"
+                                  ItemsSource="{StaticResource EnabledDisabledOptions}"
+                                  SelectedItem="{Binding CoopClansEnabled, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
+                                  Margin="0,0,0,8"/>
+
+                        <TextBlock Grid.Row="14" Grid.Column="0"
+                                   Text="Allow player executions"
+                                   VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="14" Grid.Column="1"
+                                  ItemsSource="{StaticResource EnabledDisabledOptions}"
+                                  SelectedItem="{Binding EnablePlayerExecutions, Converter={StaticResource BooleanEnabledDisabledConverter}, Mode=TwoWay}"
+                                  IsEnabled="{Binding EnableHeroExecutions}"/>
+                        <TextBlock Grid.Row="14" Grid.Column="2"
+                                   Text="Allows players to execute each other; requires hero executions"
+                                   Foreground="{DynamicResource WarningForegroundBrush}"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap"
                                    Margin="10,0,0,0"/>

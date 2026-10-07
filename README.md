@@ -4,7 +4,7 @@ BCS Tool is a Windows desktop application for managing a **Bannerlord Coop dedic
 
 It provides a graphical interface for starting, stopping, saving, restarting, monitoring, and configuring the server without requiring a separate command-line management workflow.
 
-**Current release:** v0.4.1
+**Current release:** v0.5.0
 
 **Author:** [Apar](https://github.com/AppleDeath318)
 
@@ -74,6 +74,11 @@ settings and restored on the next launch.
 3. If the executable is not detected, use **Browse** to select it manually.
 4. Press **Start** to launch the server.
 
+Bannerlord Coop v0.1.6 may display a first-run EULA question on the dedicated
+server's hidden standard-output stream. BCS Tool detects that specific prompt
+and sends `y` once so startup can continue. No response is sent unless the
+output identifies the EULA and explicitly asks for yes/no acceptance.
+
 ## Configuration Editors
 
 BCS Tool includes editors for the Bannerlord Coop server and mod configuration files.
@@ -94,16 +99,29 @@ If either configuration file does not exist yet, start the server once so Banner
 
 BCS Tool preserves the existing JSONC structure and comments when saving supported settings, and creates a `.bak` backup before overwriting a configuration file.
 
-The Mod Configuration editor supports Bannerlord Coop v0.1.3, including:
+The Server Configuration editor supports Bannerlord Coop v0.1.6's UDP server
+port setting (1–65535, default `4200`). BCS Tool uses this same value for its
+duplicate-server and restart port-safety checks.
+
+The Mod Configuration editor supports Bannerlord Coop v0.1.6, including:
 
 * campaign difficulty values applied by the hosting side at startup;
-* outgoing and incoming movement bandwidth limits;
+* proximity voice enablement and map/scene distance ranges;
 * battle size (200–1000 troops);
-* looter/bandit party-count and party-size multipliers; and
-* allied player nameplates, along with the existing gameplay and economy options.
+* offline-player war protection and AI battle-join timing;
+* wanderer population, co-op clan, and player-marriage options;
+* looter/bandit party-count and party-size multipliers;
+* hero, player-clan-member, and player execution controls; and
+* allied player nameplates and wounded-player battle entry, along with the
+  existing gameplay and economy options.
+
+The movement-bandwidth block used by older Coop versions is no longer part of
+the v0.1.6 schema. BCS Tool leaves any legacy block untouched but no longer
+presents or writes those obsolete values.
 
 When an older mod configuration is saved, BCS Tool activates formerly commented
-difficulty entries to match Bannerlord Coop v0.1.3's configuration behavior.
+difficulty entries and adds missing supported options without replacing active
+operator values.
 
 ## Player Access Control (Beta)
 
@@ -333,7 +351,7 @@ The publish configuration is:
 BCS Tool uses semantic-style version numbers:
 
 ```text
-0.4.1
+0.5.0
 ```
 
 The application version is defined in:
@@ -345,7 +363,7 @@ BCSTool.csproj
 For example:
 
 ```xml
-<Version>0.4.1</Version>
+<Version>0.5.0</Version>
 ```
 
 The UI reads the compiled application version at runtime, so the project version is the single source of truth for release numbering.
@@ -353,7 +371,7 @@ The UI reads the compiled application version at runtime, so the project version
 GitHub release tags should use the corresponding `v` prefix:
 
 ```text
-v0.4.1
+v0.5.0
 ```
 
 ## Development Status

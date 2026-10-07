@@ -12,6 +12,7 @@ public sealed class DedicatedServerConfig
     public string SaveName { get; set; } = "saveauto1";
     public int AutosaveMinutes { get; set; } = 5;
     public string Password { get; set; } = "";
+    public int Port { get; set; } = 4200;
     public bool LogFile { get; set; } = true;
     public bool Steam { get; set; } = true;
 

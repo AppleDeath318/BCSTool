@@ -385,7 +385,7 @@ public sealed class SaveBackupService
 
     /// <summary>
     /// LEGACY CRASH SAVE BACKUP (disabled): retained for source history and
-    /// never called by the v0.4.1 runtime. It would freeze the newest complete
+    /// never called by the v0.5.0 runtime. It would freeze the newest complete
     /// backup without modifying the active campaign save.
     ///
     /// Automatic crash recovery continues from the current active save. The
